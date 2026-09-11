@@ -691,6 +691,7 @@ func TestUnattributedReadingIsDropped(t *testing.T) {
 }
 
 func TestAnomalyLogIsPrivate(t *testing.T) {
+	skipIfNoUnixModes(t)
 	dir := t.TempDir()
 	a := anomaly{Account: "acct", From: 23, To: 0}
 	if err := appendAnomalyLog(dir, "acct", a); err != nil {

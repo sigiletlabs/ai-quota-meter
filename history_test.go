@@ -201,6 +201,7 @@ func TestAppendHistory_MalformedLineDoesNotResetHistory(t *testing.T) {
 // writing a 0-permission file — root ignores that regardless of what this
 // code does.
 func TestAppendHistory_FixesModeOnExistingFile(t *testing.T) {
+	skipIfNoUnixModes(t)
 	dir := t.TempDir()
 	const account = "mode-acct"
 	path := historyPath(dir, account)

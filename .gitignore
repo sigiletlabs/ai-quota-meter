@@ -1,6 +1,9 @@
-# The built binary. Built on demand; never committed, so a stale one can't be
-# installed by accident.
+# Built binaries. Built on demand; never committed, so a stale one can't be
+# installed by accident. The suffixed names come from a cross-build, and dist/
+# from ./build.sh --all.
 /ai-quota-meter
+/ai-quota-meter-*
+/dist/
 
 # Payload corpora captured for the cross-check (issue #8). Real payloads carry
 # session ids and working-directory paths, so they stay out of the repo.

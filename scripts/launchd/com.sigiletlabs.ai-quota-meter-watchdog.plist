@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.sigiletlabs.ai-quota-meter-watchdog</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>__BINARY__</string>
+    <string>--watchdog</string>
+  </array>
+
+  <!-- Six-hourly, matching the systemd timer. The threshold it checks is 48
+       hours, so this is far more often than it needs to be; the point is that
+       a machine which was asleep reports soon after waking. -->
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict><key>Hour</key><integer>0</integer><key>Minute</key><integer>7</integer></dict>
+    <dict><key>Hour</key><integer>6</integer><key>Minute</key><integer>7</integer></dict>
+    <dict><key>Hour</key><integer>12</integer><key>Minute</key><integer>7</integer></dict>
+    <dict><key>Hour</key><integer>18</integer><key>Minute</key><integer>7</integer></dict>
+  </array>
+
+  <!-- launchd runs a missed StartCalendarInterval job once after wake, which
+       is systemd's Persistent=true. Nothing to set; noted because its absence
+       looks like an omission. -->
+
+  <key>RunAtLoad</key>
+  <false/>
+
+  <key>ProcessType</key>
+  <string>Background</string>
+</dict>
+</plist>

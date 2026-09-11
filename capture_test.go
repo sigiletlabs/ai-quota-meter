@@ -56,6 +56,7 @@ func TestAccountUUIDFieldAbsent(t *testing.T) {
 }
 
 func TestAccountUUIDUnreadableFile(t *testing.T) {
+	skipIfNoUnixModes(t)
 	if os.Geteuid() == 0 {
 		t.Skip("running as root: mode bits do not block reads, so this case cannot be exercised here")
 	}
@@ -91,13 +92,17 @@ func TestWriteSnapshotRefusesEmptyAccount(t *testing.T) {
 
 func TestSnapshotPathAgreesWithApiDashboardConvention(t *testing.T) {
 	got := snapshotPath("/state", "aaaaaaaa-0000-4000-8000-000000000001")
-	want := "/state/rate-limits-aaaaaaaa-0000-4000-8000-000000000001.json"
+	// filepath.Join, not a literal: the separator differs by platform and the
+	// thing under test is the file NAME, which is the half api-dashboard
+	// actually agrees with.
+	want := filepath.Join("/state", "rate-limits-aaaaaaaa-0000-4000-8000-000000000001.json")
 	if got != want {
 		t.Errorf("snapshotPath = %q, want %q", got, want)
 	}
 }
 
 func TestWriteSnapshotWritesAttributedRecord(t *testing.T) {
+	skipIfNoUnixModes(t)
 	dir := t.TempDir()
 	stateDir := filepath.Join(dir, "state") // deliberately not pre-created
 
@@ -224,6 +229,7 @@ func TestWriteSnapshotFailsWhenStateDirPathIsBlocked(t *testing.T) {
 }
 
 func TestCaptureEnvFromOSDefaults(t *testing.T) {
+	skipIfNotXDG(t)
 	t.Setenv("STATE_DIR", "")
 	t.Setenv("CLAUDE_CONFIG", "")
 	t.Setenv("XDG_CACHE_HOME", "")
@@ -253,6 +259,7 @@ func TestCaptureEnvFromOSHonoursOverrides(t *testing.T) {
 }
 
 func TestCaptureEnvFromOSHonoursXDGCacheHome(t *testing.T) {
+	skipIfNotXDG(t)
 	t.Setenv("STATE_DIR", "")
 	t.Setenv("XDG_CACHE_HOME", "/xdg-cache")
 

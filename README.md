@@ -31,10 +31,15 @@ something they should not, which has happened; see *Alerting*.
 
 ## Install
 
-Needs Claude Code, and Linux or macOS. **Windows support is coming**; the file
-locking needs a Windows implementation first. The quota percentages
-additionally need a plan that receives them; see *What you'll actually see*. The
-optional watchdog is a systemd timer, so that part is Linux only.
+Needs Claude Code, and Linux or macOS. The quota percentages additionally need
+a plan that receives them; see *What you'll actually see*.
+
+**Windows support is coming.** It builds and runs there today — the bar
+renders, the captures are written — but one promise below is not yet kept on
+Windows: the capture files get the permissions they inherit from
+`%LocalAppData%` rather than an explicit owner-only mode. That is narrow
+already, and it is not the same guarantee, so Windows is not called supported
+until it is.
 
 macOS builds clean and every path it uses resolves correctly there, but it has
 had less real-world running than Linux. Report anything odd.
@@ -103,8 +108,14 @@ $STATE_DIR/rate-limits-<accountUuid>.json    latest reading, replaced atomically
 $STATE_DIR/rate-limits-<accountUuid>.jsonl   history, appended only when a window boundary moves
 ```
 
-`STATE_DIR` defaults to `${XDG_CACHE_HOME:-~/.cache}/api-dashboard`. Files are
-mode 600.
+`STATE_DIR` defaults to `${XDG_CACHE_HOME:-~/.cache}/api-dashboard` on Linux
+and `~/Library/Caches/api-dashboard` on macOS. Files are mode 600.
+
+On Windows the default is `%LocalAppData%\api-dashboard` — `HOME` and
+`XDG_CACHE_HOME` are not consulted there, though `STATE_DIR` still overrides on
+every platform. Windows has no mode bits, so the files are protected by the ACL
+they inherit from `%LocalAppData%`, which grants you, SYSTEM and Administrators
+and nobody else.
 
 **You do not need anything else installed for this to work, and nothing reads
 these files unless you set it up.** They exist so that a tool which wants your
@@ -215,9 +226,15 @@ Every other check runs when Claude Code renders the status line, which is
 exactly the wrong place to notice that the status line has stopped running. So
 that one check runs from a systemd user timer instead:
 
+```sh
+./scripts/install-watchdog.sh                                    # Linux, systemd timer
+./scripts/install-watchdog-macos.sh                              # macOS, launchd agent
+powershell -File .\scripts\install-watchdog-windows.ps1         # Windows, scheduled task
 ```
-./scripts/install-watchdog.sh
-```
+
+The Linux one is the one in daily use. The macOS and Windows installers were
+written against the launchd and ScheduledTasks documentation and have not been
+run on real hardware; if one misbehaves, that is worth an issue.
 
 It reports if no reading has been captured in 48 hours. Note that a user timer
 only runs while you have a session unless lingering is enabled; the script
@@ -228,7 +245,7 @@ the failure it exists to catch.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `STATE_DIR` | `${XDG_CACHE_HOME:-~/.cache}/api-dashboard` | Where captures are written |
+| `STATE_DIR` | `${XDG_CACHE_HOME:-~/.cache}/api-dashboard`, `%LocalAppData%\api-dashboard` on Windows | Where captures are written |
 | `CLAUDE_CONFIG` | `~/.claude.json` | Where account identity is read from |
 | `COLUMNS` | set by Claude Code | Terminal width, used to right-align |
 | `AQM_DEBUG` | unset | Any value sends diagnostics to stderr. Never to stdout — Claude Code renders stdout as the bar |
