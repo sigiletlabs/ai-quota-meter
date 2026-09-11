@@ -31,9 +31,13 @@ something they should not, which has happened; see *Alerting*.
 
 ## Install
 
-Needs Claude Code, and Linux or macOS — it uses `flock`, so not Windows. The
-quota percentages additionally need a plan that receives them; see *What you'll
-actually see*. The optional watchdog needs systemd, so that part is Linux only.
+Needs Claude Code, and Linux or macOS. **Windows support is coming**; the file
+locking needs a Windows implementation first. The quota percentages
+additionally need a plan that receives them; see *What you'll actually see*. The
+optional watchdog is a systemd timer, so that part is Linux only.
+
+macOS builds clean and every path it uses resolves correctly there, but it has
+had less real-world running than Linux. Report anything odd.
 
 ```sh
 go install github.com/sigiletlabs/ai-quota-meter@latest
