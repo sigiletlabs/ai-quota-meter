@@ -12,7 +12,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"syscall"
 )
 
 // historyPath is $STATE_DIR/rate-limits-<account>.jsonl.
@@ -56,11 +55,11 @@ func appendHistory(stateDir, account string, r record) (appended bool, err error
 	// identical records on first install, before this lock existed). A
 	// contended run skips rather than waits, because a duplicate line is
 	// harmless but a blocked status line violates the never-blank-the-bar
-	// rule in STATE.md. LOCK_EX because we're about to read-then-write.
-	if err := syscall.Flock(int(lf.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+	// rule in STATE.md. Exclusive because we're about to read-then-write.
+	if !tryLock(lf) {
 		return false, nil
 	}
-	defer syscall.Flock(int(lf.Fd()), syscall.LOCK_UN)
+	defer unlock(lf)
 
 	path := historyPath(stateDir, account)
 	seen, err := existingBoundaries(path)

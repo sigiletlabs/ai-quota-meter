@@ -44,7 +44,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"syscall"
 	"time"
 )
 
@@ -152,10 +151,10 @@ func checkWatch(stateDir, account string, r record, extras []string, now time.Ti
 		return nil, nil
 	}
 	defer lf.Close()
-	if err := syscall.Flock(int(lf.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+	if !tryLock(lf) {
 		return nil, nil
 	}
-	defer syscall.Flock(int(lf.Fd()), syscall.LOCK_UN)
+	defer unlock(lf)
 
 	path := watchStatePath(stateDir, account)
 	st := readWatchState(path)

@@ -64,6 +64,21 @@ run_go() {
   step "go test -race";       go test -race ./... && ok "test"  || bad "test"
   step "go build";            go build ./...      && ok "build" || bad "build"
   rm -f ai-quota-meter
+
+  # Compiling for a platform is cheap and catches the whole class of breakage
+  # that a Unix-only syscall causes. vet rather than build, because vet also
+  # typechecks the tests, which is where the last one of these hid.
+  step "cross-compile"
+  local crossfail=0
+  for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+    if GOOS="${target%/*}" GOARCH="${target#*/}" go vet ./... 2>/dev/null; then
+      printf '     %s\n' "$target"
+    else
+      printf '     %s  FAILED\n' "$target"
+      crossfail=1
+    fi
+  done
+  [ "$crossfail" -eq 0 ] && ok "cross-compile" || bad "cross-compile"
 }
 
 # Things that must never reach a public repo. Not credentials — trufflehog and

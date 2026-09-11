@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 )
@@ -239,10 +238,10 @@ func TestAppendHistory_NonBlockingLockSkipsOnContention(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer holder.Close()
-	if err := syscall.Flock(int(holder.Fd()), syscall.LOCK_EX); err != nil {
-		t.Fatalf("could not take the contending lock: %v", err)
+	if !tryLock(holder) {
+		t.Fatal("could not take the contending lock")
 	}
-	defer syscall.Flock(int(holder.Fd()), syscall.LOCK_UN)
+	defer unlock(holder)
 
 	type result struct {
 		appended bool
