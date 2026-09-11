@@ -7,6 +7,16 @@
   ],
   "timezone": "Australia/Melbourne",
   "schedule": ["before 6am on monday"],
+  "customManagers": [
+    {
+      "description": "The trufflehog scan runs the container directly rather than the action, so its tag is invisible to the github-actions manager. Without this the pin rots silently.",
+      "customType": "regex",
+      "managerFilePatterns": ["/^\\.github/workflows/.+\\.yml$/"],
+      "matchStrings": ["ghcr\\.io/trufflesecurity/trufflehog:(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)"],
+      "depNameTemplate": "ghcr.io/trufflesecurity/trufflehog",
+      "datasourceTemplate": "docker"
+    }
+  ],
   "packageRules": [
     {
       "description": "This program has no third-party dependencies on purpose. The only gomod update that exists is the go directive itself.",

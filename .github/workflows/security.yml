@@ -1,0 +1,65 @@
+name: security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # A scan only on push tells you nothing about a CVE published after the
+    # last commit, and this repo is quiet by design.
+    - cron: "17 4 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  trivy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: trivy fs
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig
+          format: sarif
+          output: trivy.sarif
+          # SARIF goes to code scanning, which is where severity is triaged.
+          # Failing the job here as well would double-report.
+          exit-code: "0"
+
+      - uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy.sarif
+          category: trivy
+
+  trufflehog:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Scan every commit, not just the tip. A secret removed in a later
+          # commit is still published.
+          fetch-depth: 0
+
+      # Deliberately the container, not trufflesecurity/trufflehog@main. The
+      # action diffs BASE against HEAD and errors when they are equal, which
+      # they are on a push to a branch with one commit. This runs the same
+      # scan that was verified locally, pinned to a version rather than a
+      # moving branch.
+      #
+      # No --results filter: default is verified,unverified,unknown, so an
+      # unverified hit fails the build too. That is intended. The private
+      # payload corpus trips the Dockerhub detector on UUID-shaped strings,
+      # and if anything that shape ever lands in this repo, it should be
+      # looked at rather than filtered away.
+      - name: trufflehog
+        run: |
+          docker run --rm -v "$PWD":/src:ro \
+            ghcr.io/trufflesecurity/trufflehog:3.97.4 \
+            git file:///src --no-update --fail
