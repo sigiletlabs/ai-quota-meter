@@ -7,6 +7,9 @@ on:
   schedule:
     # A scan only on push tells you nothing about a CVE published after the
     # last commit, and this repo is quiet by design.
+    #
+    # GitHub disables scheduled workflows in a repo with no activity for 60
+    # days. If this repo goes that quiet, this cron stops without saying so.
     - cron: "17 4 * * 1"
 
 permissions:
@@ -19,21 +22,26 @@ jobs:
       contents: read
       security-events: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: trivy fs
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
+          # Pinned to match TRIVY_IMAGE in scripts/ci.sh. Left unset, the
+          # action picks its own default (v0.70.0 at v0.36.0 of the action),
+          # so CI and a laptop would run different scanners and disagree.
+          version: v0.74.0
           scan-type: fs
           scan-ref: .
           scanners: vuln,secret,misconfig
           format: sarif
           output: trivy.sarif
           # SARIF goes to code scanning, which is where severity is triaged.
-          # Failing the job here as well would double-report.
+          # Failing here as well would double-report. scripts/ci.sh uses
+          # --exit-code 1 instead, because a laptop has no code scanning tab.
           exit-code: "0"
 
-      - uses: github/codeql-action/upload-sarif@v4
+      - uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4
         with:
           sarif_file: trivy.sarif
           category: trivy
@@ -41,25 +49,21 @@ jobs:
   trufflehog:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           # Scan every commit, not just the tip. A secret removed in a later
           # commit is still published.
           fetch-depth: 0
 
-      # Deliberately the container, not trufflesecurity/trufflehog@main. The
+      # Deliberately the container, not trufflesecurity/trufflehog@main. That
       # action diffs BASE against HEAD and errors when they are equal, which
-      # they are on a push to a branch with one commit. This runs the same
-      # scan that was verified locally, pinned to a version rather than a
-      # moving branch.
+      # they are on a push to a branch with one commit, and @main is a moving
+      # target for a check that gates the build.
       #
-      # No --results filter: default is verified,unverified,unknown, so an
-      # unverified hit fails the build too. That is intended. The private
-      # payload corpus trips the Dockerhub detector on UUID-shaped strings,
-      # and if anything that shape ever lands in this repo, it should be
-      # looked at rather than filtered away.
-      - name: trufflehog
-        run: |
-          docker run --rm -v "$PWD":/src:ro \
-            ghcr.io/trufflesecurity/trufflehog:3.97.4 \
-            git file:///src --no-update --fail
+      # No --results filter: the default is verified,unverified,unknown, so an
+      # unverified hit fails too. That is intended — nothing in this repo
+      # should look like a credential.
+      - run: scripts/ci.sh scan
+        env:
+          # The trivy half already ran in the job above with SARIF upload.
+          SKIP_TRIVY: "1"
