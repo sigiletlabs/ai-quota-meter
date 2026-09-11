@@ -20,8 +20,16 @@ and calculates nothing. The numbers are as good as the vendor's, because they
 
 ## Install
 
+Download the binary for your platform from
+[releases](https://github.com/sigiletlabs/ai-quota-meter/releases), or:
+
 ```sh
 go install github.com/sigiletlabs/ai-quota-meter@latest
+```
+
+Then run it:
+
+```sh
 ai-quota-meter
 ```
 
@@ -43,7 +51,18 @@ stale line — for a status line command it cannot run.
 
 Linux, macOS and Windows. No dependencies: standard library only, static
 binary, no daemon, no network access. To build from a clone instead, run
-`./build.sh`.
+`./build.sh`, or `./build.sh --all` for every platform at once.
+
+Release binaries are built by CI from a tag and carry a
+[build provenance attestation](https://docs.github.com/en/actions/security-guides/using-artifact-attestations-to-establish-provenance-for-builds),
+so you can check one came from this repository rather than from someone else:
+
+```sh
+gh attestation verify ai-quota-meter-linux-amd64 --repo sigiletlabs/ai-quota-meter
+```
+
+They are not code-signed yet, so Windows will want an `Unblock-File` and macOS
+a right-click Open the first time.
 
 ## What you'll see
 

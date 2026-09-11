@@ -1,0 +1,64 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  # Buildable without tagging, to check the workflow itself before trusting it
+  # with a real release. Uploads nothing.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the release and attach files
+      id-token: write # sign the provenance attestation, keylessly
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # build.sh stamps the version from `git describe`, which needs tags.
+          fetch-depth: 0
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+
+      # The same gate every push runs. A tag is a worse moment than usual to
+      # find out the tests fail.
+      - run: scripts/ci.sh go
+
+      # The same script used locally, so a release binary is built the way a
+      # developer's is rather than by a second recipe that can drift.
+      - name: build every target
+        run: GO=go ./build.sh --all
+
+      - name: checksums
+        working-directory: dist
+        run: |
+          sha256sum ./ai-quota-meter-* > SHA256SUMS
+          cat SHA256SUMS
+
+      # Keyless, sigstore-backed provenance: what built these, from which
+      # commit, with which workflow. No private key to hold, rotate or leak,
+      # which is the whole reason this is here instead of a GPG signature over
+      # SHA256SUMS. Verify with:
+      #   gh attestation verify <file> --repo sigiletlabs/ai-quota-meter
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4
+        with:
+          subject-path: dist/ai-quota-meter-*
+
+      - name: publish
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # gh is preinstalled on the runner, so no third-party release action
+          # and nothing else to pin.
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "${GITHUB_REF_NAME}" \
+            --notes "$(git tag -l --format='%(contents)' "${GITHUB_REF_NAME}")" \
+            dist/ai-quota-meter-* dist/SHA256SUMS
