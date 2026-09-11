@@ -51,6 +51,12 @@ func main() {
 		case "--version", "-v":
 			fmt.Println("ai-quota-meter " + versionString())
 			os.Exit(0)
+		case "--install":
+			os.Exit(install(os.Stdout))
+		case "--uninstall":
+			os.Exit(uninstall(os.Stdout))
+		case "--doctor":
+			os.Exit(doctor(os.Stdout, time.Now()))
 		}
 		// Anything else falls through and renders the bar. That is
 		// deliberate, not an oversight: Claude Code invokes this with no

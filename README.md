@@ -51,8 +51,24 @@ Or build it from a clone:
 GO=go ./build.sh    # or use a local toolchain
 ```
 
-Put the binary somewhere on your path, then point Claude Code at it in
-`~/.claude/settings.json`:
+Then let it wire itself in:
+
+```sh
+ai-quota-meter --install
+```
+
+That edits `~/.claude/settings.json` to point Claude Code at wherever the
+binary actually is, keeps every other setting, backs the file up first, and
+prints what your bar will look like so you know it worked before you go and
+look. `--uninstall` reverses it, and leaves a status line alone if it belongs
+to something else.
+
+There is nothing else to set. No config file, no daemon, no network access, no
+environment variables — `STATE_DIR`, `CLAUDE_CONFIG` and `AQM_NTFY_CONF` all
+have working defaults. The binary is statically linked with no runtime
+dependencies.
+
+If you would rather do it by hand, the setting is:
 
 ```json
 {
@@ -63,8 +79,20 @@ Put the binary somewhere on your path, then point Claude Code at it in
 }
 ```
 
-That is all. No config file, no daemon, no network access. The binary is
-statically linked and has no runtime dependencies.
+Note it must be an absolute path or a `~` one, and Claude Code shows **nothing
+at all** for a command it cannot run — no error, no stale line. That is why
+`--install` writes the path for you.
+
+## When the bar is empty
+
+```sh
+ai-quota-meter --doctor
+```
+
+Five checks, each naming the repair rather than just the fault: the settings
+file parses, the status line command exists, your account can be identified,
+how long ago a reading was captured, and whether the line still renders.
+Exits non-zero if anything needs attention, so you can gate a script on it.
 
 ## What you'll actually see
 
