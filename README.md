@@ -91,9 +91,9 @@ mode 600.
 **You do not need anything else installed for this to work, and nothing reads
 these files unless you set it up.** They exist so that a tool which wants your
 quota state can have it without making an API call. One such consumer is
-[api-dashboard](the private Forgejo), the project this
-program was split out of, which uses the capture to show a measured weekly
-figure instead of an estimated one. It is a consumer, not a requirement.
+api-dashboard, the private project this program was split out of, which uses
+the capture to show a measured weekly figure instead of an estimated one. It is
+a consumer, not a requirement, and you do not need it.
 
 **Deleting these files is always safe.** A consumer is expected to treat a
 missing capture as "boundary unknown", never as an error, and api-dashboard

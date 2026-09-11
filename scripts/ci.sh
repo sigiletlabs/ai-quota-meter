@@ -8,6 +8,7 @@
 #   scripts/ci.sh          everything
 #   scripts/ci.sh go       compile, vet, format, test only — no container needed
 #   scripts/ci.sh scan     trivy, actionlint and trufflehog only
+#   scripts/ci.sh privacy  the private-identifier check only
 #
 # SKIP_TRIVY=1 drops the trivy half. CI sets it, because the workflow runs
 # trivy through its own action to get the SARIF upload.
@@ -65,6 +66,40 @@ run_go() {
   rm -f ai-quota-meter
 }
 
+# Things that must never reach a public repo. Not credentials — trufflehog and
+# trivy already cover those — but identity: private hostnames, home paths, an
+# employer, the names of private repositories.
+#
+# This exists because of a real regression on 2026-09-11. The README was
+# scrubbed of a tailnet URL pointing at the private Forgejo, and then a later
+# change synced the file from the private tree and put it straight back. Both
+# secret scanners passed, because a private URL is not a credential. Two trees
+# get synced by copying; only a check catches what a copy carries.
+run_privacy() {
+  step "private identifiers"
+  local patterns=(
+    '100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.[0-9]+\.[0-9]+'  # tailscale CGNAT
+    '192\.168\.[0-9]+\.[0-9]+'
+    '10\.[0-9]+\.[0-9]+\.[0-9]+'
+    '/home/REDACTED'
+    'REDACTED-personal-domain'
+    'REDACTED-employer'
+    'REDACTED-private-repo'
+    'REDACTED-ssh-alias'
+  )
+  local hits=0
+  for pat in "${patterns[@]}"; do
+    # Skip this file: it necessarily contains every pattern it looks for.
+    local found
+    found=$(grep -rInE "$pat" . --exclude-dir=.git --exclude="ci.sh" 2>/dev/null || true)
+    if [ -n "$found" ]; then
+      echo "$found"
+      hits=1
+    fi
+  done
+  [ "$hits" -eq 0 ] && ok "no private identifiers" || bad "private identifiers in the tree"
+}
+
 run_scan() {
   local rt mo; rt=$(runtime); mo=$(mount_opts "$rt")
   if [ -z "$rt" ]; then
@@ -106,9 +141,10 @@ run_scan() {
 }
 
 case "${1:-all}" in
-  go)   run_go ;;
-  scan) run_scan ;;
-  all)  run_go; run_scan ;;
+  go)      run_go ;;
+  scan)    run_scan ;;
+  privacy) run_privacy ;;
+  all)     run_go; run_privacy; run_scan ;;
   *)    echo "usage: $0 [all|go|scan]" >&2; exit 2 ;;
 esac
 
