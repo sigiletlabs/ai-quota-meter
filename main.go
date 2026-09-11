@@ -57,6 +57,9 @@ func main() {
 			os.Exit(uninstall(os.Stdout))
 		case "--doctor":
 			os.Exit(doctor(os.Stdout, time.Now()))
+		case "--help", "-h":
+			usage(os.Stdout)
+			os.Exit(0)
 		}
 		// Anything else falls through and renders the bar. That is
 		// deliberate, not an oversight: Claude Code invokes this with no
@@ -64,7 +67,96 @@ func main() {
 		// rejecting it would blank the bar. Design rule 1 outranks argument
 		// hygiene.
 	}
+	// No arguments means one of two very different callers, and stdin says
+	// which. Claude Code writes a JSON payload down a pipe; a person running
+	// the binary by hand has a terminal on stdin. Getting this wrong in the
+	// other direction would be serious: auto-installing on the status line
+	// path would write settings on every render.
+	if interactive(os.Stdin) {
+		os.Exit(greet(os.Stdout))
+	}
+
 	os.Exit(run(os.Stdin, os.Stdout, os.Getenv("COLUMNS"), time.Now()))
+}
+
+// interactive reports whether stdin is a terminal rather than a pipe.
+//
+// On any doubt it answers false, which routes to the status line path. That is
+// the safe direction: the worst case is a person seeing a bare status line
+// instead of help, where the other way round writes to a settings file during
+// a render.
+func interactive(f *os.File) bool {
+	info, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	return info.Mode()&os.ModeCharDevice != 0
+}
+
+// greet is what a person gets for running the binary with no arguments.
+//
+// Someone who has just downloaded this and typed its name wants it set up, not
+// a usage message they then have to read. So it installs, unless it already is
+// installed, in which case showing help is the honest answer to a command that
+// had nothing to do.
+func greet(out io.Writer) int {
+	if configured() {
+		usage(out)
+		return 0
+	}
+	fmt.Fprintln(out, "Not set up yet. Doing that now.")
+	fmt.Fprintln(out)
+	return install(out)
+}
+
+// configured reports whether Claude Code's settings already name a status line
+// command that exists. A setting pointing at a deleted binary counts as not
+// configured: that is the state --install repairs.
+func configured() bool {
+	path, err := settingsPath()
+	if err != nil {
+		return false
+	}
+	settings, err := readSettings(path)
+	if err != nil {
+		// Unparseable settings are NOT "unconfigured". Installing over them
+		// is refused anyway, and saying "not set up yet" would be a lie.
+		return true
+	}
+	sl, ok := settings["statusLine"].(map[string]any)
+	if !ok {
+		return false
+	}
+	cmd, _ := sl["command"].(string)
+	if cmd == "" {
+		return false
+	}
+	_, err = os.Stat(expandTilde(cmd))
+	return err == nil
+}
+
+func usage(out io.Writer) {
+	fmt.Fprintf(out, `ai-quota-meter %s — your Claude quota, on the Claude Code status line.
+
+Run with no arguments and no terminal, it reads a status line payload on stdin
+and prints the bar. That is how Claude Code calls it; you do not do it by hand.
+
+  --install      point Claude Code at this binary (edits ~/.claude/settings.json)
+  --uninstall    undo that, leaving any other status line alone
+  --doctor       check the setup and say how to fix what is wrong
+  --self-test    send a test notification, to prove the ntfy path works
+  --watchdog     report if no reading has been captured recently (for a timer)
+  --version, -v  print the version
+  --help, -h     this
+
+With no arguments and a terminal, it installs itself if it is not set up yet,
+and prints this if it already is.
+
+Everything has a working default; there is nothing you have to configure.
+Notifications are opt-in: see the README for the ntfy topic file.
+
+https://github.com/sigiletlabs/ai-quota-meter
+`, versionString())
 }
 
 // run is main's body, taking its world as arguments so the never-blank

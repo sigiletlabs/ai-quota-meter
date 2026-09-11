@@ -51,11 +51,18 @@ Or build it from a clone:
 GO=go ./build.sh    # or use a local toolchain
 ```
 
-Then let it wire itself in:
+Then run it:
 
 ```sh
-ai-quota-meter --install
+ai-quota-meter
 ```
+
+Run by hand with nothing set up yet, it installs itself. Run by hand once it is
+set up, it prints its help. Run by Claude Code, with a payload on a pipe, it
+prints the bar and never touches your settings — the difference is whether
+stdin is a terminal.
+
+`--install` does the same thing explicitly.
 
 That edits `~/.claude/settings.json` to point Claude Code at wherever the
 binary actually is, keeps every other setting, backs the file up first, and
