@@ -12,9 +12,15 @@ import (
 	"time"
 )
 
-// renderLine returns the status line WITHOUT a trailing newline and WITHOUT
-// any right-alignment padding. Padding is issue #4's job, in align.go.
+// renderLine joins every field onto one line. Used by the tests and by
+// renderFields' callers that do not care about width.
 func renderLine(p payload, now time.Time) string {
+	return strings.Join(renderFields(p, now), "  ")
+}
+
+// renderFields returns the fields in order, unjoined, so fit() can decide how
+// many of them go on a line. Two spaces is the separator everywhere.
+func renderFields(p payload, now time.Time) []string {
 	model := p.Model.DisplayName
 	if model == "" {
 		model = "claude"
@@ -43,7 +49,7 @@ func renderLine(p payload, now time.Time) string {
 		}
 	}
 
-	return strings.Join(parts, "  ")
+	return parts
 }
 
 // windowField renders one window's field, e.g. "5h 12% (3h05m left)" or

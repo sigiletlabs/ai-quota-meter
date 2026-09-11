@@ -91,9 +91,14 @@ Two smaller behaviours worth knowing:
   countdown, rather than a countdown that has gone negative. The percentage
   beside it is stale in that case — the window has turned over and the figure
   describes the one that ended.
-- The line is right-aligned by padding, and stops one column short of the
-  terminal width so it cannot wrap. If your terminal does not tell Claude
-  Code its width, the line is printed left-aligned instead.
+- **On a narrow terminal the line wraps onto more rows rather than being cut
+  off.** Claude Code renders one row per line of output, so a phone over mosh
+  gets all of it stacked instead of the quota figures disappearing off the
+  right. Nothing is ever dropped or truncated; a single field wider than the
+  whole terminal gets its own row and overhangs.
+- If your terminal does not tell Claude Code its width, everything goes on one
+  line. Declining to guess a width beats guessing 80 and wrapping something
+  that would have fitted.
 
 ## The capture files
 
@@ -245,7 +250,7 @@ the failure it exists to catch.
 | --- | --- | --- |
 | `STATE_DIR` | `${XDG_CACHE_HOME:-~/.cache}/api-dashboard`, `%LocalAppData%\api-dashboard` on Windows | Where captures are written |
 | `CLAUDE_CONFIG` | `~/.claude.json` | Where account identity is read from |
-| `COLUMNS` | set by Claude Code | Terminal width, used to right-align |
+| `COLUMNS` | set by Claude Code | Terminal width, used to wrap onto more rows |
 | `AQM_DEBUG` | unset | Any value sends diagnostics to stderr. Never to stdout — Claude Code renders stdout as the bar |
 | `AQM_NTFY_CONF` | `~/.config/ai-quota-meter/ntfy` | Where the alerting topic is read from |
 
@@ -259,7 +264,8 @@ Five constraints that are not obvious, and that any change has to respect:
   printed before anything touches the disk.
 - **Never emit terminal escapes.** Claude Code captures this output and
   re-renders it rather than passing it to the terminal, so cursor-positioning
-  sequences corrupt the line. Right-alignment is done by padding.
+  sequences corrupt the line. Width is handled by wrapping, not by moving the
+  cursor.
 - **Never pool accounts.** See the capture section above.
 - **No runtime dependencies.** Standard library only, static binary. The bash
   version this replaces forked `jq` thirteen times per render, on every turn,

@@ -86,7 +86,7 @@ func run(stdin io.Reader, stdout io.Writer, columns string, now time.Time) (stat
 	// capture failure can reach the bar. os.Stdout is unbuffered in Go, so
 	// this single write *is* the flush — there is no buffer left holding the
 	// line when Claude Code cancels this command on the next update.
-	fmt.Fprintln(stdout, align(renderLine(p, now), columns))
+	fmt.Fprintln(stdout, fit(renderFields(p, now), columns))
 	printed = true
 
 	capture(p, now)
