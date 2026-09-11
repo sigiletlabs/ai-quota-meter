@@ -1,6 +1,6 @@
 [Unit]
 Description=Check that the Claude quota watch is still receiving readings
-Documentation=https://github.com/ai-quota-meter
+Documentation=https://github.com/sigiletlabs/ai-quota-meter
 
 [Service]
 Type=oneshot

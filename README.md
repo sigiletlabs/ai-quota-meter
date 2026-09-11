@@ -54,7 +54,7 @@ binary, no daemon, no network access. To build from a clone instead, run
 `./build.sh`, or `./build.sh --all` for every platform at once.
 
 Release binaries are built by CI from a tag and carry a
-[build provenance attestation](https://docs.github.com/en/actions/security-guides/using-artifact-attestations-to-establish-provenance-for-builds),
+[build provenance attestation](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations),
 so you can check one came from this repository rather than from someone else:
 
 ```sh
