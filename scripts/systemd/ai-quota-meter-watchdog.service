@@ -1,0 +1,10 @@
+[Unit]
+Description=Check that the Claude quota watch is still receiving readings
+Documentation=https://github.com/ai-quota-meter
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/ai-quota-meter --watchdog
+# The binary is static and reads two files; nothing here needs more.
+PrivateTmp=true
+NoNewPrivileges=true

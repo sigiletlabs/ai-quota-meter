@@ -1,0 +1,16 @@
+[Unit]
+Description=Periodic check that the Claude quota watch is alive
+
+[Timer]
+# Six-hourly. The threshold it checks is 48 hours, so this is far more often
+# than it needs to be — the point is that a machine which was asleep reports
+# soon after waking rather than at some arbitrary hour of the next day.
+OnCalendar=*-*-* 00,06,12,18:07:00
+# Without this, a laptop that was off at the scheduled time simply skips the
+# run — and a watchdog that silently does not run is the exact failure it
+# exists to catch.
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

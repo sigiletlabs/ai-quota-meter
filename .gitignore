@@ -1,0 +1,7 @@
+# The built binary. Built on demand; never committed, so a stale one can't be
+# installed by accident.
+/ai-quota-meter
+
+# Payload corpora captured for the cross-check (issue #8). Real payloads carry
+# session ids and working-directory paths, so they stay out of the repo.
+/testdata/payloads/
