@@ -30,6 +30,7 @@ jobs:
           # Pinned to match TRIVY_IMAGE in scripts/ci.sh. Left unset, the
           # action picks its own default (v0.70.0 at v0.36.0 of the action),
           # so CI and a laptop would run different scanners and disagree.
+          # renovate: datasource=github-releases depName=aquasecurity/trivy
           version: v0.74.0
           scan-type: fs
           scan-ref: .

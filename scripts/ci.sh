@@ -7,7 +7,7 @@
 #
 #   scripts/ci.sh          everything
 #   scripts/ci.sh go       compile, vet, format, test only — no container needed
-#   scripts/ci.sh scan     trivy and trufflehog only
+#   scripts/ci.sh scan     trivy, actionlint and trufflehog only
 #
 # SKIP_TRIVY=1 drops the trivy half. CI sets it, because the workflow runs
 # trivy through its own action to get the SARIF upload.
@@ -16,10 +16,20 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
-# Keep these in step with .github/workflows/security.yml. Renovate updates
-# both: see the customManagers entry in renovate.json.
+# Security tooling is pinned so a run is reproducible, and Renovate keeps the
+# pins current so "pinned" never becomes "stale". The renovate: comments are
+# load-bearing — they are how Renovate finds a version inside a shell script.
+# Without them these lines are invisible to it and freeze forever.
+#
+# The trivy version is also set in .github/workflows/security.yml, which has
+# its own marker. Both must move together.
+
+# renovate: datasource=docker depName=aquasec/trivy
 TRIVY_IMAGE=docker.io/aquasec/trivy:0.74.0
+# renovate: datasource=docker depName=trufflesecurity/trufflehog registryUrl=https://ghcr.io
 TRUFFLEHOG_IMAGE=ghcr.io/trufflesecurity/trufflehog:3.97.4
+# renovate: datasource=docker depName=rhysd/actionlint
+ACTIONLINT_IMAGE=docker.io/rhysd/actionlint:1.7.12
 
 fail=0
 step() { printf '\n\033[1m== %s\033[0m\n' "$1"; }
@@ -73,6 +83,13 @@ run_scan() {
     fs --scanners vuln,secret,misconfig --exit-code 1 --quiet /src \
     && ok "trivy" || bad "trivy"
   fi
+
+  step "actionlint ($rt)"
+  # The workflows are supply chain too. A typo in a pinned SHA or a bad
+  # expression fails at push time otherwise, which is the wrong place to
+  # find out.
+  "$rt" run --rm -v "$PWD":/repo"$mo" -w /repo "$ACTIONLINT_IMAGE" -color \
+    && ok "actionlint" || bad "actionlint"
 
   step "trufflehog ($rt)"
   if [ -d .git ]; then
