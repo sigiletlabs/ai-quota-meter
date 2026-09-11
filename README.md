@@ -1,31 +1,45 @@
 # AI Quota Meter
 
-Shows how much of your Claude quota is left, at the bottom of Claude Code.
+Claude Code is told how much of your quota is left, on nearly every turn. It
+does not put that anywhere you can see it unless you ask, so most of the time
+you are working without it.
+
+This puts it on the status line:
 
 ```
 Opus 5 (1M context)  ai-quota-meter  228k/1M  5h 62% (1h52m left)  7d 41% (4d left)
 ```
 
-`228k/1M` is how full the context window is. It is shown in tokens rather than
-the percent the vendor also sends, because the same percentage means different
-things in different windows: 70k/1M and 70k/200k are both 7%.
+**Those percentages are Anthropic's own.** Claude Code already receives them and
+hands them to whatever you set as your status line. This program reports them
+and calculates nothing. The numbers are as good as the vendor's, because they
+*are* the vendor's.
 
-Those percentages are Anthropic's own. Claude Code receives them and hands them
-to whatever you configure as your status line; this program reports them and
-calculates nothing. That is the whole point — the numbers are as good as the
-vendor's, because they *are* the vendor's.
+`228k/1M` is the context window, in tokens rather than the percent the vendor
+also sends — the same percentage means different things in different windows,
+and 70k/1M and 70k/200k are both 7%.
 
-The one calculated number in this program is the "at this rate you run out on
-Tuesday" line in a notification, and it never appears on the bar. A bar is
-glanced at continuously and absorbed as fact; a notification is read once, says
-"at this rate", and shows the measured percentage beside it.
+The one calculated number is the "at this rate you run out on Tuesday" line in a
+notification, and it never appears on the bar. A bar is glanced at continuously
+and absorbed as fact; a notification is read once, says "at this rate", and
+shows the measured percentage beside it.
 
-It also writes each reading to a file, so anything else on the machine can read
-your quota state without asking the API. That is optional and safe to ignore.
+Two things happen off the bar, both optional and both safe to ignore. Each
+reading is written to a file, so other tools can read your quota state without
+an API call. And the readings are watched for the vendor's own figures doing
+something they should not, which has happened; see *Alerting*.
 
 ## Install
 
-Build it:
+Needs Claude Code, and Linux or macOS — it uses `flock`, so not Windows. The
+quota percentages additionally need a plan that receives them; see *What you'll
+actually see*. The optional watchdog needs systemd, so that part is Linux only.
+
+```sh
+go install github.com/sigiletlabs/ai-quota-meter@latest
+```
+
+Or build it from a clone:
 
 ```sh
 ./build.sh          # builds in a container, no local Go toolchain needed
@@ -49,9 +63,9 @@ statically linked and has no runtime dependencies.
 
 ## What you'll actually see
 
-Reading the line left to right: the model, the current directory, then one
-field per quota window — how much of it you have used, and how long until it
-resets.
+Reading the line left to right: the model, the current directory, how full the
+context window is, then one field per quota window — how much of it you have
+used, and how long until it resets.
 
 The quota figures only arrive for Claude.ai Pro and Max subscribers, and not
 until the first API response of a session. Before that, and on other plans,
@@ -246,3 +260,7 @@ uncertain and deliberately did **not** come along. Refusals were observed at
 and 161M, so no single token ceiling explains the data and every estimated
 absolute figure is a floor times an unknown factor. This program passes
 through measured figures or shows nothing.
+
+## Licence
+
+MIT.
