@@ -4,11 +4,20 @@
 
 Linux is where this runs every day.
 
-Windows was verified on a clean Windows 10 machine: the bar renders, captures
-are written and correctly attributed, and the capture files come out readable
-only by you, SYSTEM and Administrators. Windows has no mode bits, so that
-protection is the ACL inherited from `%LocalAppData%` rather than mode 600 —
-a different mechanism with the same practical answer.
+Windows was verified on a clean Windows 10 machine in VirtualBox: the bar
+renders, captures are written to `%LocalAppData%\api-dashboard` and correctly
+attributed, and the capture files come out readable only by you, SYSTEM and
+Administrators. Windows has no mode bits, so that protection is the ACL
+inherited from `%LocalAppData%` rather than mode 600 — a different mechanism
+with the same practical answer. An unsigned binary ran there with no Defender
+or SmartScreen objection after `Unblock-File`.
+
+**That test ran an earlier build.** `--install`, `--doctor`, `--help` and the
+line wrapping all landed afterwards and have not been on real Windows. They
+have been exercised under wine, which gets the paths, the backslash escaping in
+the written JSON and the settings merge right, but wine is not Windows. If you
+are running this on Windows and something about setup misbehaves, that is the
+least-tested path in the project and worth an issue.
 
 macOS builds and passes on both architectures and every path it uses resolves
 correctly there, but it has had the least real running of the three. Report
