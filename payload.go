@@ -155,8 +155,9 @@ type payload struct {
 	Workspace struct {
 		CurrentDir string `json:"current_dir"`
 	} `json:"workspace"`
-	SessionID  string      `json:"session_id"`
-	RateLimits *rateLimits `json:"rate_limits"`
+	SessionID     string         `json:"session_id"`
+	RateLimits    *rateLimits    `json:"rate_limits"`
+	ContextWindow *contextWindow `json:"context_window"`
 }
 
 // parse decodes a payload, tolerating everything it can.

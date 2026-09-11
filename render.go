@@ -27,6 +27,13 @@ func renderLine(p payload, now time.Time) string {
 		parts = append(parts, dir)
 	}
 
+	// Context sits with the directory, not between the two quota windows:
+	// it is session state like the directory is, and 5h and 7d have to stay
+	// adjacent to be comparable at a glance.
+	if f := contextField(p.ContextWindow); f != "" {
+		parts = append(parts, f)
+	}
+
 	if p.RateLimits != nil {
 		if p.RateLimits.FiveHour != nil && p.RateLimits.FiveHour.UsedPercentage != nil {
 			parts = append(parts, windowField("5h", *p.RateLimits.FiveHour, now))

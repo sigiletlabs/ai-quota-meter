@@ -3,8 +3,12 @@
 Shows how much of your Claude quota is left, at the bottom of Claude Code.
 
 ```
-Opus 5 (1M context)  ai-quota-meter  5h 62% (1h52m left)  7d 41% (4d left)
+Opus 5 (1M context)  ai-quota-meter  228k/1M  5h 62% (1h52m left)  7d 41% (4d left)
 ```
+
+`228k/1M` is how full the context window is. It is shown in tokens rather than
+the percent the vendor also sends, because the same percentage means different
+things in different windows: 70k/1M and 70k/200k are both 7%.
 
 Those percentages are Anthropic's own. Claude Code receives them and hands them
 to whatever you configure as your status line; this program reports them and
@@ -87,9 +91,9 @@ mode 600.
 **You do not need anything else installed for this to work, and nothing reads
 these files unless you set it up.** They exist so that a tool which wants your
 quota state can have it without making an API call. One such consumer is
-api-dashboard, the private project this program was split out of, which uses
-the capture to show a measured weekly figure instead of an estimated one. It is
-a consumer, not a requirement, and you do not need it.
+[api-dashboard](the private Forgejo), the project this
+program was split out of, which uses the capture to show a measured weekly
+figure instead of an estimated one. It is a consumer, not a requirement.
 
 **Deleting these files is always safe.** A consumer is expected to treat a
 missing capture as "boundary unknown", never as an error, and api-dashboard
