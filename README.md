@@ -31,18 +31,14 @@ something they should not, which has happened; see *Alerting*.
 
 ## Install
 
-Needs Claude Code, and Linux or macOS. The quota percentages additionally need
-a plan that receives them; see *What you'll actually see*.
+Needs Claude Code, and Linux, macOS or Windows. The quota percentages
+additionally need a plan that receives them; see *What you'll actually see*.
 
-**Windows support is coming.** It builds and runs there today — the bar
-renders, the captures are written — but one promise below is not yet kept on
-Windows: the capture files get the permissions they inherit from
-`%LocalAppData%` rather than an explicit owner-only mode. That is narrow
-already, and it is not the same guarantee, so Windows is not called supported
-until it is.
-
+Linux is where it runs every day. Windows was verified on a clean Windows 10
+machine: the bar renders, captures are written and correctly attributed, and
+the capture files come out readable only by you, SYSTEM and Administrators.
 macOS builds clean and every path it uses resolves correctly there, but it has
-had less real-world running than Linux. Report anything odd.
+had the least real running of the three. Report anything odd.
 
 ```sh
 go install github.com/sigiletlabs/ai-quota-meter@latest
@@ -113,9 +109,11 @@ and `~/Library/Caches/api-dashboard` on macOS. Files are mode 600.
 
 On Windows the default is `%LocalAppData%\api-dashboard` — `HOME` and
 `XDG_CACHE_HOME` are not consulted there, though `STATE_DIR` still overrides on
-every platform. Windows has no mode bits, so the files are protected by the ACL
-they inherit from `%LocalAppData%`, which grants you, SYSTEM and Administrators
-and nobody else.
+every platform. Windows has no mode bits, so the protection comes from the ACL
+the files inherit from `%LocalAppData%`. Checked on a real machine: the capture
+files grant Full Control to your user, `NT AUTHORITY\SYSTEM` and
+`BUILTIN\Administrators`, and to nobody else. Different mechanism from mode
+600, same practical answer.
 
 **You do not need anything else installed for this to work, and nothing reads
 these files unless you set it up.** They exist so that a tool which wants your
