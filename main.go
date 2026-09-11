@@ -23,10 +23,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime/debug"
 	"time"
 )
 
-// version is stamped at build time (see build.sh). Unset in a plain `go build`.
+// version is stamped at build time (see build.sh). Unset in a plain
+// `go build`, where versionString falls back to the module's VCS stamp.
 var version = "dev"
 
 // fallbackLine is what gets printed if something panics before the real line
@@ -46,7 +48,15 @@ func main() {
 			os.Exit(selfTest(time.Now()))
 		case "--watchdog":
 			os.Exit(runWatchdog(time.Now()))
+		case "--version", "-v":
+			fmt.Println("ai-quota-meter " + versionString())
+			os.Exit(0)
 		}
+		// Anything else falls through and renders the bar. That is
+		// deliberate, not an oversight: Claude Code invokes this with no
+		// arguments today, and if a future version starts passing one,
+		// rejecting it would blank the bar. Design rule 1 outranks argument
+		// hygiene.
 	}
 	os.Exit(run(os.Stdin, os.Stdout, os.Getenv("COLUMNS"), time.Now()))
 }
@@ -193,4 +203,42 @@ func debugf(format string, args ...any) {
 		return
 	}
 	fmt.Fprintf(os.Stderr, "ai-quota-meter["+version+"]: "+format+"\n", args...)
+}
+
+// versionString is what --version prints.
+//
+// build.sh stamps `version` with `git describe`. A `go install` does not run
+// build.sh, so that path falls back to the VCS information the Go toolchain
+// embeds by itself — otherwise everyone who installed the documented way would
+// report "dev" and no bug report would say anything useful.
+func versionString() string {
+	if version != "dev" && version != "" {
+		return version
+	}
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return "dev"
+	}
+	if info.Main.Version != "" && info.Main.Version != "(devel)" {
+		return info.Main.Version
+	}
+	// A module built straight from a checkout has no tag, but the toolchain
+	// still records the commit.
+	var rev, dirty string
+	for _, s := range info.Settings {
+		switch s.Key {
+		case "vcs.revision":
+			if len(s.Value) >= 7 {
+				rev = s.Value[:7]
+			}
+		case "vcs.modified":
+			if s.Value == "true" {
+				dirty = "-dirty"
+			}
+		}
+	}
+	if rev != "" {
+		return rev + dirty
+	}
+	return "dev"
 }
