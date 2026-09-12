@@ -27,6 +27,16 @@ Download the binary for your platform from
 go install github.com/sigiletlabs/ai-quota-meter@latest
 ```
 
+Every released binary is built by GitHub Actions and carries a signed record of
+which commit and workflow produced it. Check it before you trust it:
+
+```sh
+gh attestation verify ai-quota-meter-linux-amd64 --repo sigiletlabs/ai-quota-meter
+```
+
+It prints nothing and exits 0 when the binary is genuine. A file that has been
+altered exits 1.
+
 Then run it:
 
 ```sh
