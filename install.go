@@ -112,6 +112,12 @@ The quota percentages need a plan that receives them, and do not appear until
 the first API response of a session. Until then you see the model and directory
 alone, which is correct rather than broken.
 `)
+
+	// Codex, if this machine has it. Deliberately not a separate flag and not
+	// a prompt: somebody who runs --install wants their quota on screen, and
+	// which agent they happen to be running is not a question they should have
+	// to answer. Prints nothing at all when Codex is absent.
+	installCodex(out)
 	return 0
 }
 
@@ -135,6 +141,11 @@ func sampleLine() string {
 
 // uninstall removes the statusLine setting if it points at this binary.
 func uninstall(out io.Writer) int {
+	// Deferred so that it still runs on the paths that give up on Claude
+	// Code's settings early. The two are independent: failing to unwire one
+	// is no reason to leave the other wired.
+	defer uninstallCodex(out)
+
 	path, err := settingsPath()
 	if err != nil {
 		fmt.Fprintf(out, "%v\n", err)

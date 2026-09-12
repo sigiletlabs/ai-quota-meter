@@ -31,7 +31,21 @@ func TestMain(m *testing.M) {
 	if os.Getenv(helperEnv) == "1" {
 		os.Exit(runHistoryHelperProcess())
 	}
-	os.Exit(m.Run())
+
+	// Point the Codex config somewhere disposable for the WHOLE package
+	// before any test runs. --install now edits Codex's config.toml too, and
+	// the developer running this suite very likely has a real one: without
+	// this, a test that forgets to set AQM_CODEX_CONFIG silently rewrites it.
+	// A test that wants a specific file overrides this with t.Setenv.
+	sandbox, err := os.MkdirTemp("", "aqm-codex-guard-")
+	if err != nil {
+		panic("cannot create the Codex sandbox for tests: " + err.Error())
+	}
+	os.Setenv("AQM_CODEX_CONFIG", filepath.Join(sandbox, "config.toml"))
+
+	code := m.Run()
+	os.RemoveAll(sandbox)
+	os.Exit(code)
 }
 
 // runHistoryHelperProcess is the entire body of the re-exec'd helper. It

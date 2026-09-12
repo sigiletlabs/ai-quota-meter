@@ -37,6 +37,7 @@ func doctor(out io.Writer, now time.Time) int {
 		checkIdentity(),
 		checkCapture(now),
 		checkRender(),
+		checkCodex(),
 	}
 
 	bad := 0

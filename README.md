@@ -45,7 +45,7 @@ If anything looks wrong:
 ai-quota-meter --doctor
 ```
 
-Five checks, each one saying how to fix what it found. Worth running before you
+Six checks, each one saying how to fix what it found. Worth running before you
 go hunting yourself, because Claude Code shows nothing at all — no error, no
 stale line — for a status line command it cannot run.
 
@@ -99,8 +99,45 @@ this rate you run out Tuesday" projection beside a threshold. A bar is glanced
 at continuously and absorbed as fact; a notification is read once, says "at
 this rate", and shows the measured percentage next to it.
 
+## If you also use Codex
+
+`--install` sets up OpenAI Codex too, without being asked and without a flag.
+If this machine has no Codex it says nothing at all.
+
+You get the same items in the same order in both tools: model, directory,
+context, then the two quota windows. Codex draws them in its own style, so the
+bar looks like Codex rather than like the one above.
+
+**This binary does not draw that bar, and never can.** Codex has no hook for
+running a status line command — its setting is a list of widgets built into
+Codex itself. What it does have is a five-hour and a weekly quota item already
+built in, switched off by default. So `--install` switches them on and orders
+them to match:
+
+```toml
+[tui]
+status_line = ["model-with-reasoning", "current-dir", "context-used", "five-hour-limit", "weekly-limit"]
+```
+
+That is the whole of it. Codex renders it, this program is not in the loop, and
+there is nothing running that was not already running. Restart Codex to pick it
+up.
+
+It edits one line of your `config.toml` and backs the file up first. A status
+line you set yourself is replaced only after saying what it replaced, and
+`--uninstall` puts back anything it did not write. Where it cannot be certain
+it would edit the right thing, it refuses and tells you the line to add by
+hand — a duplicate key would stop Codex starting, which is a far worse outcome
+than a chore.
+
+More in [Codex](docs/codex.md), including where the config lives on each
+platform and why it edits text instead of parsing TOML.
+
 ## More
 
+- [Codex](docs/codex.md) — what `--install` does on a machine with Codex, where
+  its config lives on each platform, and why it edits text rather than parsing
+  TOML.
 - [Reference](docs/reference.md) — every command, environment variable and
   rendering rule.
 - [Design notes](docs/design.md) — the five constraints any change has to

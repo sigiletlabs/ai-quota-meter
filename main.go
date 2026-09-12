@@ -141,8 +141,9 @@ func usage(out io.Writer) {
 Run with no arguments and no terminal, it reads a status line payload on stdin
 and prints the bar. That is how Claude Code calls it; you do not do it by hand.
 
-  --install      point Claude Code at this binary (edits ~/.claude/settings.json)
-  --uninstall    undo that, leaving any other status line alone
+  --install      point Claude Code at this binary (edits ~/.claude/settings.json),
+                 and switch on Codex's own quota display if Codex is installed
+  --uninstall    undo both, leaving any status line it did not write alone
   --doctor       check the setup and say how to fix what is wrong
   --self-test    send a test notification, to prove the ntfy path works
   --watchdog     report if no reading has been captured recently (for a timer)
@@ -151,6 +152,9 @@ and prints the bar. That is how Claude Code calls it; you do not do it by hand.
 
 With no arguments and a terminal, it installs itself if it is not set up yet,
 and prints this if it already is.
+
+Codex draws its own status line and cannot run this binary, so there --install
+only turns on the items Codex already has. See docs/codex.md.
 
 Everything has a working default; there is nothing you have to configure.
 Notifications are opt-in: see the README for the ntfy topic file.
