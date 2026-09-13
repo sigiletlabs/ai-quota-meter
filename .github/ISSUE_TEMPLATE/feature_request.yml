@@ -1,0 +1,52 @@
+name: Feature request
+description: Suggest something this should do that it does not.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Worth reading [docs/design.md](https://github.com/sigiletlabs/ai-quota-meter/blob/main/docs/design.md)
+        first. It lists five constraints that rule out some otherwise sensible
+        ideas, and knowing which one your suggestion runs into makes the
+        conversation much shorter.
+
+        The big one: **this program reports the vendor's figures and invents
+        none of its own.** Estimating usage the vendor did not send was
+        deliberately left behind in the tool this was split out of, because the
+        measured data does not support it.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do
+      description: The problem, not the solution. What are you doing today instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like it to do
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where would this live
+      options:
+        - On the status line
+        - In a notification
+        - In the capture files
+        - A new flag or command
+        - Somewhere else / not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Does it run into one of the design rules
+      description: If you have read docs/design.md and think it does, say which and why it is still worth doing. If you have not, leave this blank.
+    validations:
+      required: false

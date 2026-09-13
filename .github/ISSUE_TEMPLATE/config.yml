@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/sigiletlabs/ai-quota-meter/security/advisories/new
+    about: Report privately instead of opening a public issue. See SECURITY.md.
+  - name: Question about setting it up
+    url: https://github.com/sigiletlabs/ai-quota-meter#install
+    about: Run `ai-quota-meter --doctor` first — it explains most setup problems on its own.
