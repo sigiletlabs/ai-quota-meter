@@ -106,6 +106,7 @@ run_privacy() {
     '10\.[0-9]+\.[0-9]+\.[0-9]+'
     '172\.(1[6-9]|2[0-9]|3[01])\.[0-9]+\.[0-9]+'
     '[a-z]+:[a-z][a-z0-9_-]*/[a-z][a-z0-9._-]*\.git'  # an ssh-alias remote
+    '[a-z0-9-]+\.ts\.net'  # a tailscale MagicDNS name: <host>.<tailnet>.ts.net
   )
 
   # Home paths are checked separately. A real one and a fixture one have the
