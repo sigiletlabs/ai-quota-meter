@@ -90,28 +90,68 @@ run_go() {
 # change synced the file from the private tree and put it straight back. Both
 # secret scanners passed, because a private URL is not a credential. Two trees
 # get synced by copying; only a check catches what a copy carries.
+#
+# The patterns below match by SHAPE, never by name. An earlier version listed
+# the literal strings — an employer, a username, private repo names — which
+# published in this public file exactly the things it existed to keep out of it.
+# Literal names now live outside the repo, one extended-regex per line, in
+# $AQM_PRIVACY_PATTERNS (default ~/.config/ai-quota-meter/privacy-patterns).
+# That file is optional: without it the shape checks still run, and the step
+# says so rather than passing silently as though it had checked everything.
 run_privacy() {
   step "private identifiers"
   local patterns=(
     '100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.[0-9]+\.[0-9]+'  # tailscale CGNAT
     '192\.168\.[0-9]+\.[0-9]+'
     '10\.[0-9]+\.[0-9]+\.[0-9]+'
-    '/home/REDACTED'
-    'REDACTED-personal-domain'
-    'REDACTED-employer'
-    'REDACTED-private-repo'
-    'REDACTED-ssh-alias'
+    '172\.(1[6-9]|2[0-9]|3[01])\.[0-9]+\.[0-9]+'
+    '[a-z]+:[a-z][a-z0-9_-]*/[a-z][a-z0-9._-]*\.git'  # an ssh-alias remote
   )
+
+  # Home paths are checked separately. A real one and a fixture one have the
+  # same shape, so the only way to tell them apart without naming the real user
+  # -- which is what this rewrite exists to stop doing -- is to allow the
+  # documented placeholders by name. Keep this list in step with the fixtures.
+  local home_pat='(/home/|/Users/)[a-z][a-z0-9_-]*'
+  local home_ok='(/home/|/Users/)(u|you|user|username|example|runner|test)([/"`'"'"'[:space:]]|$)'
+
+  local shape_count=${#patterns[@]}
+  local extra=${AQM_PRIVACY_PATTERNS:-$HOME/.config/ai-quota-meter/privacy-patterns}
+  local extra_count=0
+  if [ -r "$extra" ]; then
+    local line
+    while IFS= read -r line; do
+      case $line in ''|'#'*) continue ;; esac
+      patterns+=("$line")
+      extra_count=$((extra_count + 1))
+    done < "$extra"
+  fi
+
   local hits=0
   for pat in "${patterns[@]}"; do
-    # Skip this file: it necessarily contains every pattern it looks for.
     local found
-    found=$(grep -rInE "$pat" . --exclude-dir=.git --exclude="ci.sh" 2>/dev/null || true)
+    found=$(grep -rInE "$pat" . --exclude-dir=.git 2>/dev/null || true)
     if [ -n "$found" ]; then
       echo "$found"
       hits=1
     fi
   done
+
+  local homes
+  homes=$(grep -rInE "$home_pat" . --exclude-dir=.git 2>/dev/null \
+    | grep -vE "$home_ok" || true)
+  if [ -n "$homes" ]; then
+    echo "$homes"
+    hits=1
+  fi
+
+  if [ "$extra_count" -gt 0 ]; then
+    printf '     %d shape patterns + %d local from %s\n' \
+      "$((shape_count + 1))" "$extra_count" "$extra"
+  else
+    printf '     %d shape patterns; no local name list at %s\n' \
+      "$((shape_count + 1))" "$extra"
+  fi
   [ "$hits" -eq 0 ] && ok "no private identifiers" || bad "private identifiers in the tree"
 }
 
