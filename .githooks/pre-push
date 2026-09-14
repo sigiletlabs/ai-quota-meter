@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Runs the private-identifier check before anything leaves this machine.
+#
+# CI runs the same check, and CI is the gate that actually blocks a merge.
+# This hook exists because of what CI cannot undo: by the time CI reports a
+# private identifier, the commit is already on the forge, and a force-push
+# does not remove it. GitHub keeps unreachable objects fetchable by SHA until
+# a support request makes them run gc. So the only place a leak is genuinely
+# cheap to fix is before the push.
+#
+# Enable in a fresh clone (git does not ship hooks):
+#   git config core.hooksPath .githooks
+#
+# Skip once, deliberately, with:
+#   AQM_SKIP_PRIVACY_HOOK=1 git push
+set -uo pipefail
+
+if [ "${AQM_SKIP_PRIVACY_HOOK:-}" = 1 ]; then
+  echo "pre-push: privacy check skipped (AQM_SKIP_PRIVACY_HOOK=1)" >&2
+  exit 0
+fi
+
+root=$(git rev-parse --show-toplevel)
+if [ ! -x "$root/scripts/ci.sh" ]; then
+  echo "pre-push: scripts/ci.sh missing; not blocking the push" >&2
+  exit 0
+fi
+
+if ! "$root/scripts/ci.sh" privacy; then
+  cat >&2 <<'MSG'
+
+pre-push: BLOCKED. A private identifier is in the tree or its history.
+
+Fix it before pushing. Once it is on the forge, removing it needs a history
+rewrite AND a support request, because a force-push leaves the old blob
+fetchable by its SHA.
+
+If this is a false positive, push once with:
+  AQM_SKIP_PRIVACY_HOOK=1 git push
+MSG
+  exit 1
+fi

@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Blocks a commit whose message credits an AI, before the commit exists.
+#
+# Enable in a fresh clone (it is per-clone, git does not ship hooks):
+#   git config core.hooksPath .githooks
+#
+# CI re-runs the same script on the pushed range, so a clone that skips this
+# still cannot land a credited commit on a branch - it just finds out later,
+# when the fix costs a rebase instead of a retype.
+set -euo pipefail
+exec "$(git rev-parse --show-toplevel)/tools/assert-no-ai-credit.sh" --message-file "$1"
