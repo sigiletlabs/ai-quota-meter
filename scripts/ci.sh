@@ -98,6 +98,13 @@ run_go() {
 # $AQM_PRIVACY_PATTERNS (default ~/.config/ai-quota-meter/privacy-patterns).
 # That file is optional: without it the shape checks still run, and the step
 # says so rather than passing silently as though it had checked everything.
+#
+# It scans HISTORY, not just the working tree. Deleting a line from a file
+# removes it from HEAD and from nothing else: the blob stays fetchable from
+# every clone and from the forge's API for as long as the repository exists.
+# The 2026-09-11 regression was "fixed" by a later commit and stayed public
+# the whole time. A check that only reads the worktree would have called that
+# clean, which is the failure this exists to stop.
 run_privacy() {
   step "private identifiers"
   local patterns=(
@@ -113,8 +120,12 @@ run_privacy() {
   # same shape, so the only way to tell them apart without naming the real user
   # -- which is what this rewrite exists to stop doing -- is to allow the
   # documented placeholders by name. Keep this list in step with the fixtures.
-  local home_pat='(/home/|/Users/)[a-z][a-z0-9_-]*'
-  local home_ok='(/home/|/Users/)(u|you|user|username|example|runner|test)([/"`'"'"'[:space:]]|$)'
+  # Matches ANY username, never a particular one -- the point is that it keeps
+  # working when the account running the build is not the one that wrote this.
+  # Windows included, because a path pasted from a contributor's machine is
+  # exactly how one of these arrives.
+  local home_pat='(/home/|/Users/)[a-z][a-z0-9_-]*|[A-Za-z]:\\\\Users\\\\[A-Za-z][A-Za-z0-9_.-]*'
+  local home_ok='(/home/|/Users/|Users\\\\)(u|you|user|username|example|runner|test|USERNAME|Public|Default)([/\\"`'"'"'[:space:]]|$)'
 
   local shape_count=${#patterns[@]}
   local extra=${AQM_PRIVACY_PATTERNS:-$HOME/.config/ai-quota-meter/privacy-patterns}
@@ -144,6 +155,45 @@ run_privacy() {
   if [ -n "$homes" ]; then
     echo "$homes"
     hits=1
+  fi
+
+  # The history pass. Everything above reads the worktree, which is only what
+  # the repository looks like now. A blob committed once is public for good.
+  #
+  # AQM_PRIVACY_SKIP_HISTORY=1 turns this off for a shallow checkout, where
+  # rev-list sees one commit and a clean result would mean nothing. CI sets
+  # fetch-depth: 0 so it does not need the escape hatch; it exists so a
+  # contributor's shallow clone reports "skipped" instead of a false pass.
+  if [ ! -d .git ]; then
+    echo "     history: skipped, not a git repository"
+  elif [ "${AQM_PRIVACY_SKIP_HISTORY:-}" = 1 ]; then
+    echo "     history: skipped (AQM_PRIVACY_SKIP_HISTORY=1)"
+  elif [ "$(git rev-parse --is-shallow-repository 2>/dev/null)" = true ]; then
+    bad "history: this clone is shallow, so the history check cannot run"
+    echo "     fetch with --unshallow, or set AQM_PRIVACY_SKIP_HISTORY=1 to accept the gap"
+  else
+    local revs hist_hits=0
+    revs=$(git rev-list --all 2>/dev/null)
+    if [ -n "$revs" ]; then
+      local hfound
+      for pat in "${patterns[@]}"; do
+        # shellcheck disable=SC2086
+        hfound=$(git grep -InE "$pat" $revs -- 2>/dev/null | head -20 || true)
+        if [ -n "$hfound" ]; then echo "$hfound"; hist_hits=1; fi
+      done
+      # shellcheck disable=SC2086
+      hfound=$(git grep -InE "$home_pat" $revs -- 2>/dev/null \
+        | grep -vE "$home_ok" | head -20 || true)
+      if [ -n "$hfound" ]; then echo "$hfound"; hist_hits=1; fi
+
+      if [ "$hist_hits" -eq 1 ]; then
+        echo "     ^ these are in HISTORY. Removing them from HEAD does nothing:"
+        echo "       the blob stays fetchable until the history is rewritten."
+        hits=1
+      else
+        echo "     history: $(echo "$revs" | wc -l) commits scanned, clean"
+      fi
+    fi
   fi
 
   if [ "$extra_count" -gt 0 ]; then

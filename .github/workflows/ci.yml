@@ -13,6 +13,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # The privacy step scans every commit, not just the worktree. The
+          # default shallow checkout would give it one commit and a clean
+          # result that means nothing, so it refuses to run on a shallow
+          # clone rather than passing. Full history here, deliberately.
+          fetch-depth: 0
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
@@ -21,3 +27,8 @@ jobs:
       # The steps live in the script, not here, so `scripts/ci.sh go` on a
       # laptop runs exactly what this job runs.
       - run: scripts/ci.sh go
+
+      # This is the gate that was missing when a tailnet URL went public on
+      # 2026-09-11. The check existed; nothing ran it. `all` runs it, `go`
+      # and `scan` do not, and CI only ever called those two.
+      - run: scripts/ci.sh privacy
