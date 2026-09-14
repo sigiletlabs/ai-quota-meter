@@ -77,7 +77,17 @@ body:
   - type: markdown
     attributes:
       value: |
-        **Please check what you paste.** The doctor output names file paths and
-        may name your account. Redact anything you would rather not publish —
-        an account identifier is more useful shortened than removed, so
-        `a1b2…` beats deleting the line.
+        **Read the doctor output before you paste it — this issue is public.**
+
+        It always prints your home directory, so it names your username. And
+        if the `last capture` check is more than two days stale — which is
+        exactly the case you are probably reporting — it prints the capture
+        file path, which has your **Claude account UUID** in it:
+
+        ```
+        /home/YOU/.cache/api-dashboard/rate-limits-<account-uuid>.json
+        ```
+
+        Replace your username with `YOU` and shorten the UUID to its first
+        four characters. A shortened id is still useful to us; a full one is
+        not more useful, just more public.
