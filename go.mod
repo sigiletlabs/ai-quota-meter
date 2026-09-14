@@ -21,8 +21,17 @@ go 1.24
 // purpose, so builds that depend on it keep working; the Go reference is
 // explicit that retracted versions "should remain available". This only stops
 // `go get` and `go list -m -u` from offering them, and marks them on
-// pkg.go.dev. Use v0.3.1 or later.
+// pkg.go.dev. Use v0.3.2.
+//
+// v0.4.0 and v0.4.1 are a numbering correction, not a content problem. The
+// change was a point release and was tagged as a minor one. v0.4.0 was already
+// in sum.golang.org by the time that was noticed, and the go command reads
+// retract directives from the HIGHEST version, so demoting it needs a version
+// above it saying so. v0.4.1 exists only to carry that line and retract
+// itself. Its tree is v0.3.2's tree.
 retract (
+	v0.4.1 // Contains retractions only.
+	v0.4.0 // Version number was wrong; this is a point release, not a minor one.
 	v0.3.0
 	v0.2.0
 	v0.1.0
