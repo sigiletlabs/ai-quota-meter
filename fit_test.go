@@ -8,7 +8,7 @@ import (
 
 // The real bar, as a field list.
 func bar() []string {
-	return []string{"Opus 5 (1M context)", "ai-quota-meter", "228k/1M", "5h 62% (1h52m left)", "7d 41% (4d left)"}
+	return []string{"Opus 5 (1M context)", "ai-quota-meter", "228k/1M", "5h 38% (1h52m left)", "7d 59% (4d left)"}
 }
 
 func TestFitOneLineWhenItFits(t *testing.T) {

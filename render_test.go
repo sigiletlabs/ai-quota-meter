@@ -40,7 +40,7 @@ func TestRenderLine(t *testing.T) {
 				}
 				return p
 			}(),
-			want: "Sonnet 5  ai-quota-meter  5h 12% (47m left)",
+			want: "Sonnet 5  ai-quota-meter  5h 88% (47m left)",
 		},
 		{
 			name: "five hour only, under a day left (zero-padded minutes)",
@@ -51,7 +51,7 @@ func TestRenderLine(t *testing.T) {
 				}
 				return p
 			}(),
-			want: "Sonnet 5  ai-quota-meter  5h 12% (3h05m left)",
+			want: "Sonnet 5  ai-quota-meter  5h 88% (3h05m left)",
 		},
 		{
 			name: "seven day only, beyond a day left",
@@ -62,7 +62,7 @@ func TestRenderLine(t *testing.T) {
 				}
 				return p
 			}(),
-			want: "Sonnet 5  ai-quota-meter  7d 41% (4d left)",
+			want: "Sonnet 5  ai-quota-meter  7d 59% (4d left)",
 		},
 		{
 			name: "both windows",
@@ -74,7 +74,7 @@ func TestRenderLine(t *testing.T) {
 				}
 				return p
 			}(),
-			want: "Sonnet 5  ai-quota-meter  5h 12% (3h05m left)  7d 41% (4d left)",
+			want: "Sonnet 5  ai-quota-meter  5h 88% (3h05m left)  7d 59% (4d left)",
 		},
 		{
 			name: "past reset: percentage shown, no countdown suffix",
@@ -85,7 +85,7 @@ func TestRenderLine(t *testing.T) {
 				}
 				return p
 			}(),
-			want: "Sonnet 5  ai-quota-meter  5h 99%",
+			want: "Sonnet 5  ai-quota-meter  5h 1%",
 		},
 		{
 			name: "missing model defaults to claude",
@@ -106,7 +106,7 @@ func TestRenderLine(t *testing.T) {
 				}
 				return p
 			}(),
-			want: "Sonnet 5  ai-quota-meter  5h 0% (1h00m left)",
+			want: "Sonnet 5  ai-quota-meter  5h 100% (1h00m left)",
 		},
 		{
 			name: "absent percentage suppresses the whole field, even with resets_at set",
@@ -128,7 +128,7 @@ func TestRenderLine(t *testing.T) {
 				}
 				return p
 			}(),
-			want: "Sonnet 5  ai-quota-meter  5h 57% (1h00m left)",
+			want: "Sonnet 5  ai-quota-meter  5h 43% (1h00m left)",
 		},
 		{
 			name: "round-half-to-even: 28.999999999999996 -> 29",
@@ -139,7 +139,7 @@ func TestRenderLine(t *testing.T) {
 				}
 				return p
 			}(),
-			want: "Sonnet 5  ai-quota-meter  7d 29% (2d left)",
+			want: "Sonnet 5  ai-quota-meter  7d 71% (2d left)",
 		},
 		{
 			name: "the bash reference line from the README",
@@ -151,7 +151,7 @@ func TestRenderLine(t *testing.T) {
 				}
 				return p
 			}(),
-			want: "Sonnet 5  ai-quota-meter  5h 12% (3h05m left)  7d 41% (4d left)",
+			want: "Sonnet 5  ai-quota-meter  5h 88% (3h05m left)  7d 59% (4d left)",
 		},
 	}
 
@@ -159,6 +159,31 @@ func TestRenderLine(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := renderLine(tt.p, now); got != tt.want {
 				t.Errorf("renderLine() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRenderLineShowsRemainingQuota(t *testing.T) {
+	now := time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)
+
+	for _, tt := range []struct {
+		name string
+		used float64
+		want string
+	}{
+		{name: "fresh windows", used: 0, want: "Sonnet 5  ai-quota-meter  5h 100% (1h00m left)  7d 100% (4d left)"},
+		{name: "partly used windows", used: 41, want: "Sonnet 5  ai-quota-meter  5h 59% (1h00m left)  7d 59% (4d left)"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			p := newPayload("Sonnet 5", "/home/u/dev/ai-quota-meter")
+			p.RateLimits = &rateLimits{
+				FiveHour: &window{UsedPercentage: pct(tt.used), ResetsAt: now.Add(time.Hour).Unix()},
+				SevenDay: &window{UsedPercentage: pct(tt.used), ResetsAt: now.Add(4 * 24 * time.Hour).Unix()},
+			}
+
+			if got := renderLine(p, now); got != tt.want {
+				t.Errorf("renderLine() = %q, want remaining quota %q", got, tt.want)
 			}
 		})
 	}
