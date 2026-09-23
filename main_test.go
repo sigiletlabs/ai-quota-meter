@@ -84,8 +84,8 @@ func TestRunNeverBlanksTheBar(t *testing.T) {
 	t.Run("claude.json missing", func(t *testing.T) {
 		isolate(t) // deliberately does not create the file
 		got := runCase(t, realPayload, testColumns)
-		if !strings.Contains(got, "5h 48%") {
-			t.Errorf("printed %q, want remaining quota — identity is only needed for the capture", got)
+		if !strings.Contains(got, "5h 52%") {
+			t.Errorf("printed %q, want the vendor's figures — identity is only needed for the capture", got)
 		}
 	})
 
@@ -151,7 +151,7 @@ func TestRunWritesTheCaptureOnTheHappyPath(t *testing.T) {
 	writeClaudeConfig(t, filepath.Join(dir, "claude.json"), "acct-1")
 
 	got := runCase(t, realPayload, testColumns)
-	if !strings.Contains(got, "5h 48%") || !strings.Contains(got, "7d 60%") {
+	if !strings.Contains(got, "5h 52%") || !strings.Contains(got, "7d 40%") {
 		t.Errorf("line = %q, want both windows", got)
 	}
 
@@ -182,25 +182,6 @@ func TestRunWritesTheCaptureOnTheHappyPath(t *testing.T) {
 	}
 	if n := strings.Count(string(hist2), "\n"); n != 1 {
 		t.Errorf("history grew to %d lines on an unchanged boundary", n)
-	}
-}
-
-func TestRunDisplaysRemainingQuotaButCapturesVendorUsedPercentage(t *testing.T) {
-	dir := isolate(t)
-	writeClaudeConfig(t, filepath.Join(dir, "claude.json"), "acct-1")
-	payload := `{"model":{"display_name":"Sonnet 5"},"workspace":{"current_dir":"/work/proj"},"session_id":"sess-1","rate_limits":{"five_hour":{"used_percentage":41,"resets_at":1787319600},"seven_day":{"used_percentage":41,"resets_at":1787731200}}}`
-
-	got := runCase(t, payload, testColumns)
-	if !strings.Contains(got, "5h 59%") || !strings.Contains(got, "7d 59%") {
-		t.Errorf("line = %q, want both windows as remaining quota", got)
-	}
-
-	snapshot, err := os.ReadFile(filepath.Join(dir, "state", "rate-limits-acct-1.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Count(string(snapshot), `"used_percentage":41`) != 2 {
-		t.Errorf("snapshot changed the vendor's used percentage: %s", snapshot)
 	}
 }
 
@@ -254,7 +235,7 @@ func TestRunPrintsBeforeCapturing(t *testing.T) {
 	if err != nil || len(entries) == 0 {
 		t.Fatalf("no capture happened at all, so the ordering claim is vacuous: %v", err)
 	}
-	if !strings.Contains(w.String(), "5h 48%") {
+	if !strings.Contains(w.String(), "5h 52%") {
 		t.Errorf("line = %q", w.String())
 	}
 }

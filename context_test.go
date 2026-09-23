@@ -113,7 +113,7 @@ func TestContextFieldSitsAfterTheDirectory(t *testing.T) {
 		`"rate_limits":{"five_hour":{"used_percentage":52,"resets_at":1788803600},` +
 		`"seven_day":{"used_percentage":40,"resets_at":1789200000}}}`
 	got := renderLine(parse([]byte(j)), time.Unix(1788800000, 0))
-	want := "Opus 5  proj  70k/1M  5h 48%"
+	want := "Opus 5  proj  70k/1M  5h 52%"
 	if !strings.HasPrefix(got, want) {
 		t.Errorf("got %q, want prefix %q", got, want)
 	}

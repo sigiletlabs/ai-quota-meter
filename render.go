@@ -52,12 +52,10 @@ func renderFields(p payload, now time.Time) []string {
 	return parts
 }
 
-// windowField renders one window's remaining quota, e.g. "5h 88% (3h05m left)"
-// or "7d 59%" when the reset has already passed. The payload and captures keep
-// Anthropic's used_percentage unchanged; the complement belongs only here at
-// the user-facing renderer boundary.
+// windowField renders one window's field, e.g. "5h 12% (3h05m left)" or
+// "7d 41%" when the reset has already passed.
 func windowField(label string, w window, now time.Time) string {
-	field := fmt.Sprintf("%s %.0f%%", label, 100-*w.UsedPercentage)
+	field := fmt.Sprintf("%s %.0f%%", label, *w.UsedPercentage)
 	if left := timeLeft(w.ResetsAt, now); left != "" {
 		field += fmt.Sprintf(" (%s left)", left)
 	}

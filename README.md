@@ -7,16 +7,16 @@ around a number that is sitting right there.
 This puts it on the status line, where you can glance at it:
 
 ```
-Opus 5 (1M context)  ai-quota-meter  228k/1M  5h 38% (1h52m left)  7d 59% (4d left)
+Opus 5 (1M context)  ai-quota-meter  228k/1M  5h 62% (1h52m left)  7d 41% (4d left)
 ```
 
 Left to right: the model, the directory, how full the context window is, then
-each quota window with how much remains and how long until it resets.
+each quota window with how much you have used and how long until it resets.
 
-**Those percentages are the quota remaining, derived by subtracting Anthropic's
-used percentage from 100 at display time.** Claude Code already receives the
-used figures and hands them to whatever you set as your status line. The meter
-stores Anthropic's figures unchanged and performs only that display conversion.
+**Those percentages are Anthropic's own.** Claude Code already receives them and
+hands them to whatever you set as your status line. This program reports them
+and calculates nothing. The numbers are as good as the vendor's, because they
+*are* the vendor's.
 
 ## Install
 
