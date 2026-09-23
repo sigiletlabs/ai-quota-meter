@@ -37,7 +37,7 @@ build() {
 		podman run --rm -v "$PWD":/src:Z -w /src \
 			-e CGO_ENABLED=0 -e GOOS="$goos" -e GOARCH="$goarch" \
 			-e GOFLAGS=-mod=mod -e GOCACHE=/tmp/gocache \
-			golang:1.24-bookworm go build "${flags[@]}"
+			golang:1.27.1-bookworm go build "${flags[@]}"
 	fi
 }
 

@@ -1,6 +1,6 @@
 module github.com/sigiletlabs/ai-quota-meter
 
-go 1.24
+go 1.27.1
 
 // Every version before v0.3.1 is retracted, and their tags are gone.
 //

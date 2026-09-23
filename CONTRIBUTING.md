@@ -23,7 +23,7 @@ until the first API response of a session.
 
 ## Building and testing
 
-Go 1.24 or newer (the version in `go.mod`). No other dependencies.
+Go 1.27.1 or newer (the version in `go.mod`). No other dependencies.
 
 ```sh
 ./build.sh          # this platform
