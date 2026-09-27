@@ -120,19 +120,62 @@ who kept the two limits and reordered the rest has exactly what the check is
 for. A machine with no Codex reports ok, not a warning about software the user
 never asked for.
 
+## Codex readings in the captures and alerts
+
+`--install` also adds a `Stop` hook to `hooks.json`, beside `config.toml`:
+
+```json
+{"hooks": [{"type": "command", "command": "/path/to/ai-quota-meter --codex-hook", "timeout": 10}]}
+```
+
+Codex runs a `Stop` hook after every turn and passes it `transcript_path`, the
+session's rollout file. Codex writes a `token_count` event into that file after
+each model response, and the event carries its own quota figures. The hook
+reads the newest one from the last 8 MB of the file and records it the way a
+Claude Code reading is recorded: the snapshot, the history line and the watch
+that drives the ntfy alerts. It prints nothing and always exits 0, because Codex
+treats hook output as model context and a non-zero exit as a failed hook.
+
+**Codex asks you to trust the hook once.** It will not run a new hook until you
+do. The next time Codex starts it offers to review hooks; choose "Trust All and
+Continue", or trust just this one. This program never writes the trust entry
+itself, because that is Codex's own check on what runs after every turn.
+
+The new hook is appended as its own group. Codex trusts hooks by position, so
+putting it first would make it ask about every existing `Stop` hook again.
+
+What it records, and what it drops:
+
+| In the reading | What happens |
+| --- | --- |
+| A 300-minute window | recorded as the five-hour window |
+| A 10080-minute window | recorded as the weekly window |
+| A window of any other length (a plus plan has been seen with 43200) | not recorded; named once in an "unknown rate-limit window" alert |
+| `limit_id` other than `codex` (a `premium` limit also appears) | ignored, so two counters never share one watch |
+| Newest reading more than 15 minutes old | ignored, since it is not this turn's |
+| No `tokens.account_id` in `auth.json` | nothing recorded, the same rule as Claude Code |
+
+Files are keyed `codex-<account_id>`, so a Codex account never shares a file
+with a Claude account: `rate-limits-codex-<id>.json`, `.jsonl` and
+`watch-codex-<id>.json` in the same state directory. Alerts from them say
+"Codex" where the Claude ones say "Claude". Each account has its own one-push-
+per-hour cap, so with both in use the channel can carry two pushes in an hour.
+
+This came in as issue #20, which assumed the rollout files had stopped being
+written and the data had moved to `thread_history_*.sqlite`. That was wrong:
+rollouts were still being written on 2026-09-26, and the SQLite file holds
+conversation items, not rate limits. So no SQLite reader is needed.
+
 ## What is deliberately not here
 
-- **No reading of Codex's quota data.** Codex records a richer `rate_limits`
-  block than Claude Code does (`window_minutes`, a unix `resets_at`, `plan_type`)
-  in its session history, so the capture files, the seven-day history and the
-  ntfy alerts could all be fed from Codex too. That is a real feature and a
-  much larger one: the data moved out of JSONL rollouts into
-  `thread_history_*.sqlite`, which would mean reading SQLite against an
-  undocumented schema that has already changed once. Not started.
 - **No opt-out flag.** Somebody who runs `--install` wants their quota on
   screen; which agent they happen to run is not a question they should have to
   answer. If an existing `status_line` is replaced, the backup holds the old
   one.
+- **No watchdog for Codex.** `--watchdog` still checks only the Claude
+  account. If the hook stops running, for example because it was never
+  trusted, Codex readings stop without an alert. `--doctor` shows whether the
+  hook is installed, but it cannot tell whether Codex trusts it.
 - **No version detection.** Identifiers are matched literally by Codex and the
   set has grown over releases. Detecting the version would mean parsing
   `codex --version` and keeping a table of which release learned which

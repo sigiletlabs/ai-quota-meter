@@ -39,6 +39,7 @@ hardware.
 | `--doctor` | Check the setup and name the fix for anything wrong. Exits non-zero if something needs attention |
 | `--self-test` | Send a test notification, to prove the ntfy path works |
 | `--watchdog` | Report if no reading has been captured recently. For a timer, not for you |
+| `--codex-hook` | Record Codex's quota after a turn. Codex runs it from `hooks.json`; `--install` adds it |
 | `--version`, `-v` | Print the version |
 | `--help`, `-h` | List the commands |
 

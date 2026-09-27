@@ -57,6 +57,10 @@ func main() {
 			os.Exit(uninstall(os.Stdout))
 		case "--doctor":
 			os.Exit(doctor(os.Stdout, time.Now()))
+		case "--codex-hook":
+			// Codex's Stop hook. Always exits 0 and never writes to stdout;
+			// see codexhook.go.
+			os.Exit(runCodexHook(os.Stdin, time.Now()))
 		case "--help", "-h":
 			usage(os.Stdout)
 			os.Exit(0)
@@ -147,6 +151,8 @@ and prints the bar. That is how Claude Code calls it; you do not do it by hand.
   --doctor       check the setup and say how to fix what is wrong
   --self-test    send a test notification, to prove the ntfy path works
   --watchdog     report if no reading has been captured recently (for a timer)
+  --codex-hook   record Codex's quota after a turn (Codex runs this; --install
+                 adds it to ~/.codex/hooks.json)
   --version, -v  print the version
   --help, -h     this
 
@@ -154,7 +160,8 @@ With no arguments and a terminal, it installs itself if it is not set up yet,
 and prints this if it already is.
 
 Codex draws its own status line and cannot run this binary, so there --install
-only turns on the items Codex already has. See docs/codex.md.
+turns on the items Codex already has, and adds a Stop hook so Codex readings
+reach the capture files and the alerts too. See docs/codex.md.
 
 Everything has a working default; there is nothing you have to configure.
 Notifications are opt-in: see the README for the ntfy topic file.
@@ -234,9 +241,20 @@ func capture(p payload, now time.Time) {
 		return
 	}
 
+	var extras []string
+	if p.RateLimits != nil {
+		extras = p.RateLimits.Extra
+	}
+	saveReading(env.StateDir, account, "Claude", r, extras, now)
+}
+
+// saveReading writes an attributed reading to the snapshot and the history,
+// then folds it into the watch. Shared by the Claude Code status line and the
+// Codex Stop hook (codexhook.go); product names the vendor in any alert.
+func saveReading(stateDir, account, product string, r record, extras []string, now time.Time) {
 	// The two writes are independent: a failed snapshot should not cost the
 	// history line, and vice versa. Both errors are logged and dropped.
-	switch err := writeSnapshot(env.StateDir, account, r); {
+	switch err := writeSnapshot(stateDir, account, r); {
 	case errors.Is(err, errStaleBoundary):
 		// Not a failure: this session is reporting an older five-hour window
 		// than one already captured, so the snapshot on disk is the better
@@ -245,7 +263,7 @@ func capture(p payload, now time.Time) {
 	case err != nil:
 		debugf("writing snapshot: %v", err)
 	}
-	if appended, err := appendHistory(env.StateDir, account, r); err != nil {
+	if appended, err := appendHistory(stateDir, account, r); err != nil {
 		debugf("appending history: %v", err)
 	} else if appended {
 		debugf("recorded a new boundary pair %v", r.boundaries())
@@ -255,11 +273,7 @@ func capture(p payload, now time.Time) {
 	// line went out long ago and both files are already written, so the worst
 	// a hung ntfy can cost is this process being killed on the next update
 	// with nothing left half-done.
-	var extras []string
-	if p.RateLimits != nil {
-		extras = p.RateLimits.Extra
-	}
-	runWatch(env.StateDir, account, r, extras, now)
+	runWatch(stateDir, account, product, r, extras, now)
 }
 
 // runWatch folds the reading into the account's watch and pushes at most one
@@ -270,7 +284,7 @@ func capture(p payload, now time.Time) {
 // evidence. The attempt is marked before the send and the delivery only after
 // it, so an unreachable server cannot be retried on every turn and a failed
 // send is not mistaken for a delivered one.
-func runWatch(stateDir, account string, r record, extras []string, now time.Time) {
+func runWatch(stateDir, account, product string, r record, extras []string, now time.Time) {
 	pending, found := checkWatch(stateDir, account, r, extras, now)
 
 	if found != nil {
@@ -289,7 +303,7 @@ func runWatch(stateDir, account string, r record, extras []string, now time.Time
 	}
 
 	markPushAttempt(stateDir, account, now)
-	if err := notifyAlert(*chosen); err != nil {
+	if err := notifyAlert(forProduct(*chosen, product)); err != nil {
 		debugf("watch: %s not sent: %v", chosen.Kind, err)
 		return
 	}

@@ -118,6 +118,7 @@ alone, which is correct rather than broken.
 	// which agent they happen to be running is not a question they should have
 	// to answer. Prints nothing at all when Codex is absent.
 	installCodex(out)
+	installCodexHook(out)
 	return 0
 }
 
@@ -144,6 +145,7 @@ func uninstall(out io.Writer) int {
 	// Deferred so that it still runs on the paths that give up on Claude
 	// Code's settings early. The two are independent: failing to unwire one
 	// is no reason to leave the other wired.
+	defer uninstallCodexHook(out)
 	defer uninstallCodex(out)
 
 	path, err := settingsPath()

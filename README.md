@@ -129,11 +129,17 @@ them to match:
 status_line = ["model-with-reasoning", "current-dir", "context-used", "five-hour-limit", "weekly-limit"]
 ```
 
-That is the whole of it. Codex renders it, this program is not in the loop, and
-there is nothing running that was not already running. Restart Codex to pick it
-up.
+Codex renders that itself; this program is not in the loop. Restart Codex to
+pick it up.
 
-It edits one line of your `config.toml` and backs the file up first. A status
+It also adds a `Stop` hook to `~/.codex/hooks.json`, so Codex readings reach the
+capture files and the ntfy alerts the same way Claude Code readings do. Codex
+runs the hook after each turn. It asks you to trust a new hook the next time it
+starts: choose "Trust All and Continue". Until you do, the bar works and the
+readings are not recorded.
+
+It edits one line of your `config.toml`, and appends one hook to `hooks.json`,
+and backs each file up first. A status
 line you set yourself is replaced only after saying what it replaced, and
 `--uninstall` puts back anything it did not write. Where it cannot be certain
 it would edit the right thing, it refuses and tells you the line to add by

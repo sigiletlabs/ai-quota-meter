@@ -22,6 +22,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -237,6 +238,21 @@ func watchdogAlert(silentFor time.Duration, now time.Time) alert {
 			roundHours(silentFor)),
 		Tags: "mute",
 	}
+}
+
+// forProduct names the right vendor in an alert built from a Codex reading.
+// The bodies above are written for Claude Code, which is where nearly all of
+// them come from; renaming at send time keeps one copy of each message. Key is
+// left alone, since it is what delivery is recorded against.
+func forProduct(a alert, product string) alert {
+	if product == "" || product == "Claude" {
+		return a
+	}
+	for _, s := range []*string{&a.Title, &a.Body} {
+		*s = strings.ReplaceAll(*s, "Claude Code", product)
+		*s = strings.ReplaceAll(*s, "Claude", product)
+	}
+	return a
 }
 
 func roundDays(d time.Duration) string {
