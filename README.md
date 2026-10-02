@@ -1,22 +1,49 @@
-# AI Quota Meter
+<p align="center">
+  <img src="docs/banner.svg" alt="AI Quota Meter" width="100%">
+</p>
+
+<p align="center">
+  <a href="https://github.com/sigiletlabs/ai-quota-meter/releases/latest"><img src="https://img.shields.io/github/v/release/sigiletlabs/ai-quota-meter?style=flat-square" alt="Latest release"></a>
+  <a href="https://github.com/sigiletlabs/ai-quota-meter/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/sigiletlabs/ai-quota-meter/ci.yml?branch=main&style=flat-square&label=ci" alt="CI"></a>
+  <a href="go.mod"><img src="https://img.shields.io/github/go-mod/go-version/sigiletlabs/ai-quota-meter?style=flat-square" alt="Go version"></a>
+  <img src="https://img.shields.io/badge/platforms-linux%20%7C%20macOS%20%7C%20windows-informational?style=flat-square" alt="Linux, macOS and Windows">
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/sigiletlabs/ai-quota-meter?style=flat-square" alt="Licence: MIT"></a>
+</p>
+
+## Your Claude quota, on your status line
 
 You can't see how much Claude quota you have left. Claude Code is told, on
-nearly every turn, and doesn't show you unless you stop and ask. So you work
-around a number that is sitting right there.
-
-This puts it on the status line, where you can glance at it:
+nearly every turn, and doesn't show you unless you stop and ask. This puts it
+on the status line, where you can glance at it:
 
 ```
 Opus 5 (1M context)  ai-quota-meter  228k/1M  5h 62% (1h52m left)  7d 41% (4d left)
 ```
 
-Left to right: the model, the directory, how full the context window is, then
-each quota window with how much you have used and how long until it resets.
+```sh
+go install github.com/sigiletlabs/ai-quota-meter@latest
+ai-quota-meter            # sets itself up and shows what your bar will look like
+ai-quota-meter --doctor   # six checks, if anything looks wrong
+```
+
+Works with: `Claude Code` · `Codex` — Linux, macOS and Windows. Static binary, no network access.
 
 **Those percentages are Anthropic's own.** Claude Code already receives them and
 hands them to whatever you set as your status line. This program reports them
 and calculates nothing. The numbers are as good as the vendor's, because they
 *are* the vendor's.
+
+---
+
+## What's on the bar
+
+| Item | Example | What it shows |
+|------|---------|---------------|
+| Model | `Opus 5 (1M context)` | The model this session is using |
+| Directory | `ai-quota-meter` | Where Claude Code is running |
+| Context | `228k/1M` | How full the context window is |
+| Five-hour window | `5h 62% (1h52m left)` | How much of the five-hour quota you have used, and how long until it resets |
+| Weekly window | `7d 41% (4d left)` | The same for the weekly quota |
 
 ## Install
 
@@ -26,16 +53,6 @@ Download the binary for your platform from
 ```sh
 go install github.com/sigiletlabs/ai-quota-meter@latest
 ```
-
-Every released binary is built by GitHub Actions and carries a signed record of
-which commit and workflow produced it. Check it before you trust it:
-
-```sh
-gh attestation verify ai-quota-meter-linux-amd64 --repo sigiletlabs/ai-quota-meter
-```
-
-It prints nothing and exits 0 when the binary is genuine. A file that has been
-altered exits 1.
 
 Then run it:
 
@@ -70,6 +87,9 @@ so you can check one came from this repository rather than from someone else:
 ```sh
 gh attestation verify ai-quota-meter-linux-amd64 --repo sigiletlabs/ai-quota-meter
 ```
+
+It prints nothing and exits 0 when the binary is genuine. A file that has been
+altered exits 1.
 
 They are not code-signed yet, so Windows will want an `Unblock-File` and macOS
 a right-click Open the first time.
@@ -151,13 +171,13 @@ platform and why it edits text instead of parsing TOML.
 
 ## More
 
-- [Codex](docs/codex.md) — what `--install` does on a machine with Codex, where
-  its config lives on each platform, and why it edits text rather than parsing
-  TOML.
-- [Reference](docs/reference.md) — every command, environment variable and
-  rendering rule.
-- [Design notes](docs/design.md) — the five constraints any change has to
-  respect, and where this came from.
+| Page | What's in it |
+|------|--------------|
+| [Codex](docs/codex.md) | What `--install` does on a machine with Codex, where its config lives on each platform, and why it edits text rather than parsing TOML |
+| [Reference](docs/reference.md) | Every command, environment variable and rendering rule |
+| [Design notes](docs/design.md) | The five constraints any change has to respect, and where this came from |
+| [Capture files](docs/capture-files.md) | The per-account reading files other tools can read |
+| [Alerting](docs/alerting.md) | The six notifications and how to turn them on |
 
 ## Licence
 
