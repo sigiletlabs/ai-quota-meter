@@ -47,7 +47,15 @@ jobs:
       # which is the whole reason this is here instead of a GPG signature over
       # SHA256SUMS. Verify with:
       #   gh attestation verify <file> --repo sigiletlabs/ai-quota-meter
+      #     --signer-workflow sigiletlabs/ai-quota-meter/.github/workflows/release.yml
+      #
+      # Gated on a tag, same as publish below. An attestation is durable and
+      # publicly verifiable, so one written for a workflow_dispatch run would be
+      # a standing claim about a binary that was never released -- and the
+      # --signer-workflow check in the docs cannot tell the two apart, because
+      # both are signed by this same file.
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4
+        if: startsWith(github.ref, 'refs/tags/')
         with:
           subject-path: dist/ai-quota-meter-*
 

@@ -85,11 +85,19 @@ Release binaries are built by CI from a tag and carry a
 so you can check one came from this repository rather than from someone else:
 
 ```sh
-gh attestation verify ai-quota-meter-linux-amd64 --repo sigiletlabs/ai-quota-meter
+gh attestation verify ai-quota-meter-linux-amd64 \
+  --repo sigiletlabs/ai-quota-meter \
+  --signer-workflow sigiletlabs/ai-quota-meter/.github/workflows/release.yml
 ```
 
 It prints nothing and exits 0 when the binary is genuine. A file that has been
 altered exits 1.
+
+`--signer-workflow` is the part that earns the rest. `--repo` on its own only
+shows that some workflow in this repository produced some binary with this
+file's digest; naming `release.yml` is what says the release pipeline built it
+and not a workflow added later. SECURITY.md says what that still leaves
+unproven.
 
 They are not code-signed yet, so Windows will want an `Unblock-File` and macOS
 a right-click Open the first time.

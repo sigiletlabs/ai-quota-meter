@@ -60,15 +60,41 @@ Worth reporting:
 
 ## Verifying a release
 
-Every released binary carries a signed record of which commit and workflow
-produced it:
+Every released binary carries a signed record of which commit and which
+workflow produced it:
 
 ```sh
-gh attestation verify ai-quota-meter-linux-amd64 --repo sigiletlabs/ai-quota-meter
+gh attestation verify ai-quota-meter-linux-amd64 \
+  --repo sigiletlabs/ai-quota-meter \
+  --signer-workflow sigiletlabs/ai-quota-meter/.github/workflows/release.yml
 ```
 
 Exit 0 and no output means genuine. Exit 1 means the file is not what this
 repository built.
+
+`--signer-workflow` is load-bearing, and dropping it weakens the check rather
+than tidying it. `--repo` alone proves only that some workflow in this
+repository produced some binary with this file's digest, and any workflow with
+push access could attest anything at all. Naming `release.yml` is what makes the
+claim "the release pipeline built this" rather than "something in this
+repository vouched for this".
+
+What it does not prove is which tag the binary came from: `--signer-workflow`
+matches the workflow's path and ignores the ref the certificate carries, so an
+attestation minted before the attest step was gated on a tag satisfies the
+command above just as well as a current one. Pinning the ref closes that:
+
+```sh
+gh attestation verify ai-quota-meter-linux-amd64 \
+  --repo sigiletlabs/ai-quota-meter \
+  --signer-workflow sigiletlabs/ai-quota-meter/.github/workflows/release.yml \
+  --source-ref refs/tags/v0.3.4
+```
+
+`v0.3.4` on its own does not match and the command exits 1; the `refs/tags/`
+prefix is part of the value. Comparing against the release's `SHA256SUMS` is
+the other half, because the attestation binds the binary rather than the
+release page.
 
 The binaries are not code-signed yet, so Windows will want an `Unblock-File`
 and macOS a right-click Open the first time. That is not a security failure,
