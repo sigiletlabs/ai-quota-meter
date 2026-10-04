@@ -2,10 +2,12 @@ package main
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -352,3 +354,184 @@ func TestMainAlwaysExitsZero(t *testing.T) {
 		})
 	}
 }
+
+// Issue #16: the status line read stdin with nothing bounding it.
+//
+// read(2) on a pipe blocks in the kernel until the writer closes, and the pipe
+// belongs to Claude Code — so the program cannot ask whether more is coming and
+// cannot tell a slow caller from an abandoned one. Observed on this machine as a
+// process stuck 23 minutes in do_wait. Design rule 1 is enforced against a
+// non-zero exit, empty output and a panic; it was not enforced against blocking,
+// and a bar that never updates is the same blank bar from the user's side.
+//
+// These assert the two halves that have to hold together: the read gives up,
+// and giving up still produces a line and exit 0. A fix that only bounded the
+// read would leave the second half to the rest of the program, which is a
+// coincidence rather than a guarantee.
+
+// neverCloses returns a reader that delivers body and then blocks forever,
+// which is what a writer that crashed mid-payload looks like from in here.
+type neverCloses struct {
+	mu   sync.Mutex
+	body []byte
+	done chan struct{}
+}
+
+func newNeverCloses(body string) *neverCloses {
+	return &neverCloses{body: []byte(body), done: make(chan struct{})}
+}
+
+// Read hands over whatever is left of the body, then blocks. It reports the
+// count it actually copied rather than assuming the reader took all of it: the
+// loop under test reads in 32 KB chunks, and a helper that claimed more than
+// it delivered would make the test pass for the wrong reason.
+func (n *neverCloses) Read(p []byte) (int, error) {
+	n.mu.Lock()
+	if len(n.body) > 0 {
+		sent := copy(p, n.body)
+		n.body = n.body[sent:]
+		n.mu.Unlock()
+		return sent, nil
+	}
+	n.mu.Unlock()
+	<-n.done // blocks until the test finishes and closes done
+	return 0, io.EOF
+}
+
+func (n *neverCloses) Close() { close(n.done) }
+
+func TestStatusLineSurvivesStdinThatNeverCloses(t *testing.T) {
+	isolate(t)
+
+	// A tenth of the real budget, so the test costs 200ms rather than 2s. The
+	// ratio is what matters, not the number: the point is that run() returns
+	// while the reader is still blocked, not that it returns in 2s.
+	restore := statusLineReadBudget
+	statusLineReadBudget = 200 * time.Millisecond
+	t.Cleanup(func() { statusLineReadBudget = restore })
+
+	// The payload is whole when it is handed over, so a run that gives up
+	// should still render the real figures rather than the degraded line.
+	// That is the interesting case: bounding the read is only free if what
+	// already arrived is still used.
+	reader := newNeverCloses(realPayload)
+	defer reader.Close()
+
+	done := make(chan string, 1)
+	go func() {
+		var out bytes.Buffer
+		status := run(reader, &out, testColumns, time.Unix(1787311223, 0))
+		if status != 0 {
+			t.Errorf("run returned status %d, want 0 — a non-zero exit blanks the bar", status)
+		}
+		done <- out.String()
+	}()
+
+	var got string
+	select {
+	case got = <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("run did not return while stdin was still open; the read is unbounded")
+	}
+
+	if strings.TrimSpace(got) == "" {
+		t.Fatalf("printed %q, which blanks the status bar", got)
+	}
+	if !strings.HasSuffix(got, "\n") {
+		t.Errorf("printed %q with no trailing newline", got)
+	}
+	// The point of keeping the partial bytes: what arrived was a complete
+	// payload, so the line must carry the vendor's figures. There is no
+	// assertion here about fallbackLine, because it is "claude\n" — the same
+	// bytes an empty payload legitimately renders, so it cannot distinguish
+	// a discarded read from a correct one.
+	if !strings.Contains(got, "5h") {
+		t.Errorf("printed %q, which lost the payload it already had", strings.TrimSpace(got))
+	}
+}
+
+// The other half of the bargain: a payload cut in half mid-write is still worth
+// parsing, because parse is lenient per field. This is the case that shows the
+// bound is not "throw the read away".
+func TestStatusLineRendersAPartialPayload(t *testing.T) {
+	isolate(t)
+
+	restore := statusLineReadBudget
+	statusLineReadBudget = 200 * time.Millisecond
+	t.Cleanup(func() { statusLineReadBudget = restore })
+
+	// Half a real payload, then nothing. Whatever fields survived the cut are
+	// rendered and the rest read as absent.
+	half := realPayload[:len(realPayload)/2]
+	reader := newNeverCloses(half)
+	defer reader.Close()
+
+	done := make(chan string, 1)
+	go func() {
+		var out bytes.Buffer
+		run(reader, &out, testColumns, time.Unix(1787311223, 0))
+		done <- out.String()
+	}()
+
+	select {
+	case got := <-done:
+		if strings.TrimSpace(got) == "" {
+			t.Fatalf("a half-written payload printed %q, which blanks the status bar", got)
+		}
+		if !strings.HasSuffix(got, "\n") {
+			t.Errorf("printed %q with no trailing newline", got)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("run did not return while stdin was still open")
+	}
+}
+
+// A caller that streams forever must not be able to exhaust memory either. A
+// deadline on its own does not stop that — a fast writer beats a clock — so the
+// cap is a separate bound and is tested separately.
+func TestStatusLineReadIsCapped(t *testing.T) {
+	// A cap that is deliberately NOT a multiple of the 32 KB read chunk. With a
+	// round cap the two possible implementations — truncate each chunk, or stop
+	// before overflowing — return the same number, and a test that cannot tell
+	// them apart is not testing the cap. This one can.
+	const cap = 1000
+	data, timedOut, err := boundedRead(neverEnding{}, 5*time.Second, cap)
+	if timedOut {
+		t.Error("reported a timeout on a reader that returns instantly; the deadline is doing nothing")
+	}
+	if err != nil && err != io.EOF {
+		t.Errorf("err = %v, want nil or io.EOF", err)
+	}
+	if len(data) != cap {
+		t.Errorf("read %d bytes, want the cap of %d — the cap must bound the bytes, not merely stop the loop", len(data), cap)
+	}
+}
+
+// neverEnding yields bytes forever and never returns an error, which is the
+// shape that would run forever if the cap were not there.
+type neverEnding struct{}
+
+func (neverEnding) Read(p []byte) (int, error) {
+	for i := range p {
+		p[i] = 'x'
+	}
+	return len(p), nil
+}
+
+// A reader that returns (0, nil) forever is a distinct hazard from one that
+// blocks: io.ReadAll treats it as spin-and-keep-going, and the loop has to
+// notice rather than wedge on it.
+func TestStatusLineReadSurvivesAZeroByteReader(t *testing.T) {
+	restore := statusLineReadBudget
+	statusLineReadBudget = 100 * time.Millisecond
+	t.Cleanup(func() { statusLineReadBudget = restore })
+
+	_, timedOut, _ := boundedRead(zeroBytes{}, statusLineReadBudget, statusLineReadCap)
+	if !timedOut {
+		t.Error("a reader returning (0, nil) forever did not hit the deadline")
+	}
+}
+
+type zeroBytes struct{}
+
+func (zeroBytes) Read([]byte) (int, error) { return 0, nil }

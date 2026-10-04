@@ -24,6 +24,7 @@ import (
 	"io"
 	"os"
 	"runtime/debug"
+	"sync"
 	"time"
 )
 
@@ -194,7 +195,20 @@ func run(stdin io.Reader, stdout io.Writer, columns string, now time.Time) (stat
 	// Drain stdin unconditionally. Claude Code is writing to a pipe, and
 	// exiting without reading it leaves the writer facing EPIPE. A read error
 	// is not fatal; parse handles a short or empty payload.
-	data, err := io.ReadAll(stdin)
+	//
+	// Bounded, because the pipe is opened by the caller and read(2) on it
+	// blocks in the kernel until the writer closes. Nothing else here does --
+	// see statusLineReadBudget for the whole of why that is a defect rather
+	// than a theoretical one.
+	data, timedOut, err := boundedRead(stdin, statusLineReadBudget, statusLineReadCap)
+	if timedOut {
+		// Degraded, not failed: parse copes with a partial or empty payload
+		// and renders a less useful line, which is what design rule 1 asks
+		// for. Saying so here is what makes the next question answerable --
+		// a bar that has gone quiet with nothing in the log is a bug report
+		// nobody can act on.
+		debugf("stdin still open after %s; rendering what arrived (%d bytes so far)", statusLineReadBudget, len(data))
+	}
 	if err != nil {
 		debugf("reading stdin: %v", err)
 	}
@@ -210,6 +224,100 @@ func run(stdin io.Reader, stdout io.Writer, columns string, now time.Time) (stat
 
 	capture(p, now)
 	return 0
+}
+
+// statusLineReadBudget is how long the status line waits for the payload
+// before rendering whatever has arrived.
+//
+// This is the one path design rule 1 does not already cover. The rule is
+// enforced against a non-zero exit, against empty output and against a panic;
+// it says nothing about blocking, and a status line that blocks forever is the
+// same blank bar from the user's side. It is not theoretical: observed on this
+// machine as a process stuck 23 minutes in do_wait, and the pipe belongs to
+// Claude Code, so the program has no way to ask whether more is coming.
+//
+// Two seconds is not a budget the render is expected to meet. The whole status
+// line runs in about ten milliseconds, Claude Code writes the payload and
+// closes the pipe, and the deadline only ever fires on a caller that has gone
+// away mid-write. It is a backstop, so it is set far enough above the real cost
+// that load has to be pathological to reach it.
+//
+// A var and not a const so a test can shorten it: asserting on a two-second
+// timeout means either a two-second test or no test, and this is the assertion
+// that matters.
+var statusLineReadBudget = 2 * time.Second
+
+// statusLineReadCap bounds the bytes, for the same reason and separately. A
+// caller that streams without closing defeats a deadline on a fast machine;
+// this cannot be beaten by writing quickly. Real payloads are a few kilobytes,
+// so the cap is orders of magnitude above anything legitimate — it exists to
+// make "unbounded" untrue rather than to be tuned.
+//
+// The Codex hook already bounds its own read at 1 MiB with io.LimitReader,
+// which is where this number comes from.
+const statusLineReadCap = 1 << 20
+
+// boundedRead reads r until EOF, until cap bytes have arrived, or until budget
+// has passed — and returns what it has at whichever of those happens first,
+// along with whether it was the deadline.
+//
+// The read happens on its own goroutine and is abandoned on timeout. That is
+// safe and not a leak: an abandoned goroutine is blocked in read(2) on a
+// descriptor the process is about to exit on, and exiting is what releases it.
+// It appends under a mutex, so the partial slice returned on timeout cannot
+// race it — which is the only reason this is not just io.ReadAll in a
+// goroutine and a select.
+//
+// The partial bytes are kept rather than discarded because a payload cut in
+// half is still worth parsing: parse is lenient per field, so it renders what
+// survived and treats the rest as absent. That is design rule 1's bargain —
+// less useful, never blank.
+func boundedRead(r io.Reader, budget time.Duration, cap int) (data []byte, timedOut bool, err error) {
+	var mu sync.Mutex
+	readErr := make(chan error, 1)
+	go func() {
+		chunk := make([]byte, 32*1024)
+		for {
+			n, err := r.Read(chunk)
+			if n > 0 {
+				mu.Lock()
+				if room := cap - len(data); room > 0 {
+					if n > room {
+						n = room
+					}
+					data = append(data, chunk[:n]...)
+				}
+				mu.Unlock()
+			}
+			if err != nil {
+				readErr <- err
+				return
+			}
+			if n == 0 {
+				continue
+			}
+			mu.Lock()
+			full := len(data) >= cap
+			mu.Unlock()
+			if full {
+				readErr <- nil
+				return
+			}
+		}
+	}()
+
+	timer := time.NewTimer(budget)
+	defer timer.Stop()
+	select {
+	case err = <-readErr:
+		mu.Lock()
+		defer mu.Unlock()
+		return data, false, err
+	case <-timer.C:
+		mu.Lock()
+		defer mu.Unlock()
+		return data, true, nil
+	}
 }
 
 // capture records the reading for anything else on the machine that wants it,
