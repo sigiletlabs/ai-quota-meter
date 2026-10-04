@@ -8,8 +8,21 @@
 # a support request makes them run gc. So the only place a leak is genuinely
 # cheap to fix is before the push.
 #
-# Enable in a fresh clone (git does not ship hooks):
+# This file is byte-identical in the dev tree and the publication tree. What
+# differs between them is scripts/privacy-profile: the dev tree names the two
+# paths that are private on purpose (the unscrubbed captured payloads and
+# STATE.md), the publication tree allows nothing. Without that file the dev
+# tree's gate would be red on every push and would be bypassed permanently,
+# which is the same silent-nothing gate wearing a different name.
+#
+# Enable in a fresh clone (it is per-clone, git does not ship hooks):
 #   git config core.hooksPath .githooks
+#
+# Check it, because a global core.hooksPath in ~/.gitconfig or /etc/gitconfig
+# takes precedence for any clone that has no local setting yet, and a clone is
+# exactly the case where there is none. See .githooks/commit-msg for the whole
+# of it; the short version:
+#   git rev-parse --git-path hooks      # must end in .githooks/
 #
 # Skip once, deliberately, with:
 #   AQM_SKIP_PRIVACY_HOOK=1 git push
@@ -21,9 +34,32 @@ if [ "${AQM_SKIP_PRIVACY_HOOK:-}" = 1 ]; then
 fi
 
 root=$(git rev-parse --show-toplevel)
-if [ ! -x "$root/scripts/ci.sh" ]; then
-  echo "pre-push: scripts/ci.sh missing; not blocking the push" >&2
-  exit 0
+if [ ! -f "$root/scripts/ci.sh" ] || [ ! -x "$root/scripts/ci.sh" ]; then
+  cat >&2 <<'MSG'
+pre-push: BLOCKED. The private-identifier check did not run.
+
+  scripts/ci.sh is missing or not executable, so there is nothing to run and
+  nothing was checked. This hook fails closed on purpose. The version it
+  replaced exited 0 when scripts/ci.sh was absent, which meant that in the tree
+  where commits are actually authored the gate never ran and said nothing — the
+  project already writes that failure mode down as "the check existed; nothing
+  ran it", and a quiet pass is exactly it.
+
+Fix it, then push again. Two cases, because the file is tracked in one tree
+and untracked in the other:
+
+  # tracked (it was ever committed here) -- restores the committed bytes:
+  git -C <this repository> checkout -- scripts/ci.sh
+
+  # never committed in this tree -- copy it from its twin, which is byte-identical:
+  cp ../ai-quota-meter{,-public}/scripts/ci.sh scripts/ci.sh
+
+  chmod +x scripts/ci.sh
+
+Or say plainly that you want to push without the check:
+  AQM_SKIP_PRIVACY_HOOK=1 git push
+MSG
+  exit 1
 fi
 
 if ! "$root/scripts/ci.sh" privacy; then

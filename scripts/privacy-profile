@@ -1,0 +1,42 @@
+# scripts/privacy-profile — the PUBLICATION tree (github.com/sigiletlabs).
+#
+# scripts/ci.sh privacy reads this file. It is the ONLY thing that differs
+# between this tree and the dev tree: the gate itself is byte-identical, so
+# the two cannot drift into checking different things.
+#
+# There are no `allow` lines, on purpose.
+#
+# This tree is public. It must contain no private identifier at all, so there is
+# nothing here to exempt — not a fixture, not a work log, not a filename. The
+# dev tree's profile names two paths that are private on purpose; copying that
+# file here would be the mistake this file's emptiness makes obvious in a diff.
+#
+# Absence would mean the same thing as emptiness: no file, no exemptions. This
+# file is committed anyway, because "there is nothing to allow" is a decision
+# somebody made, and it should read as one rather than as an oversight.
+#
+# Grammar, one directive per line, comments with #:
+#
+#   profile <name>
+#   allow <worktree|history> <glob> [<class> ...]
+#
+#   scope   worktree  the checkout as it stands now
+#           history   every commit reachable from any ref, i.e. `git grep` over
+#                     `git rev-list --all` — a blob that was once committed
+#   class   home     a /home/<user> or /Users/<user> style path
+#           shape    one of the built-in shape patterns (tailnet, RFC1918,
+#                    an ssh-alias remote, a *.ts.net name)
+#           local    one line from $AQM_PRIVACY_PATTERNS, the untracked list of
+#                    literal private names
+#           Omit the class list and the path is exempt from all three.
+#
+# Glob: relative to the repository root, `/` separators. `*` stays inside one
+# path segment; `**` crosses them.
+#
+# Override the file with AQM_PRIVACY_PROFILE=<path>.
+#
+# Do not add an `allow` line without a reason in the commit message that adds
+# it. Every line here is a hole in a gate that exists because a leaked blob
+# cannot be un-leaked.
+
+profile public

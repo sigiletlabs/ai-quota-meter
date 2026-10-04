@@ -43,6 +43,28 @@ locally" and "it passed in CI" mean the same thing. **Run `scripts/ci.sh go`
 before opening a pull request.** The container half is nice to have; the CI run
 will do it for you.
 
+## Turning on the local hooks
+
+Two of the checks are worth having before you push rather than after, and both
+ship disabled because git does not ship hooks and a fresh clone has no reason to
+know about them:
+
+```sh
+git config core.hooksPath .githooks
+git rev-parse --git-path hooks      # must end in .githooks/
+```
+
+Check that second line. If your machine has a global `core.hooksPath` in
+`~/.gitconfig`, a fresh clone resolves its hooks there instead, and you get
+whichever hooks that directory happens to hold — possibly none of these. Local
+config beats global, which is why setting it once per clone is the fix.
+
+With them on, `scripts/ci.sh privacy` runs before every push. In this
+repository it allows nothing: the tree is public, so a private identifier is a
+failure every time. If it blocks on something you believe is a false positive,
+say so in an issue rather than reaching for `AQM_SKIP_PRIVACY_HOOK=1` — a gate
+that gets bypassed on every push is the same as no gate.
+
 ## What a change has to respect
 
 [docs/design.md](docs/design.md) lists five constraints that are not obvious

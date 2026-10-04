@@ -13,6 +13,11 @@
 # SKIP_TRIVY=1 drops the trivy half. CI sets it, because the workflow runs
 # trivy through its own action to get the SARIF upload.
 #
+# This file is byte-identical in the dev tree and the publication tree. What
+# differs between them is scripts/privacy-profile, which only says which paths
+# are private on purpose. If this script forks, the two gates stop meaning the
+# same thing and the copy is what silently stops happening.
+#
 # Exit codes: 0 pass, 1 a check failed, 2 a prerequisite is missing.
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -81,6 +86,189 @@ run_go() {
   [ "$crossfail" -eq 0 ] && ok "cross-compile" || bad "cross-compile"
 }
 
+# ---------------------------------------------------------------------------
+# The privacy profile.
+#
+# Two trees, one gate. The publication tree must contain no private identifier
+# at all. The dev tree legitimately holds unscrubbed captured payloads and a
+# private work log. Rather than a second script — two scripts drift, and then
+# the thing being checked in one tree is not the thing being checked in the
+# other — the difference is a committed file, scripts/privacy-profile, read here.
+#
+# The profile is a list of PATHS and a list of CLASSES, never a blanket "ignore
+# this pattern". A path that is exempt from home-path detection is still
+# checked for a tailnet hostname, and a home path in any other file still
+# blocks. That is the whole point: the dev tree's private content lives in two
+# named places, and everything that gets copied between the trees is somewhere
+# else.
+#
+# Absence is the strictest case, not a permissive one. No profile file, no
+# exemptions. A tree that forgets to ship the file is therefore stricter than
+# one that has it, which is the right direction for a gate to fail in.
+#
+# Override the file with AQM_PRIVACY_PROFILE=<path>.
+# ---------------------------------------------------------------------------
+
+# <where>_<class>, where <where> is worktree|history and <class> is
+# home|shape|local. Glob_ere output, one entry per allow line.
+allow_worktree_home=()
+allow_worktree_shape=()
+allow_worktree_local=()
+allow_history_home=()
+allow_history_shape=()
+allow_history_local=()
+
+privacy_profile_name=none
+privacy_allow_count=0
+privacy_allow_lines=()
+
+# One path glob to an ERE matching the path field of a grep match line.
+# grep -rIn prints "./docs/x.md:12:text"; git grep prints "<rev>:docs/x.md:12:text".
+# So the caller anchors; this only escapes the glob and expands:
+#   ** -> .*   (crosses /)     * -> [^:]*   (stays in one segment)
+glob_ere() {
+  local g=$1 out='' c
+  local i
+  for (( i = 0; i < ${#g}; i++ )); do
+    c=${g:i:1}
+    # shellcheck disable=SC1003  # SC1003 reads the '\' case pattern as a quote
+    case $c in
+      '*')
+        if [ "${g:i+1:1}" = '*' ]; then out+='.*'; (( i++ )); else out+='[^:]*'; fi ;;
+      '?')  out+='[^:]' ;;
+      '\\') out+='\\\\' ;;
+      '.'|'+'|'('|')'|'['|']'|'{'|'}'|'|'|'^'|'$') out+="\\$c" ;;
+      *)    out+=$c ;;
+    esac
+  done
+  printf '%s' "$out"
+}
+
+# An alternation over the profile's globs for one scope, anchored to the path
+# field of a match line. Empty output means "nothing is exempt in this scope",
+# and the caller then skips the filter entirely rather than grepping for a
+# pattern that matches nothing.
+allow_ere() {
+  local where=$1 pat prefix out=''
+  shift
+  [ $# -eq 0 ] && return 0
+  [ "$where" = history ] && prefix='^[^:]*:' || prefix='^(\./)?'
+  for pat in "$@"; do out+="${out:+|}${prefix}${pat}:"; done
+  printf '%s' "$out"
+}
+
+load_privacy_profile() {
+  local file=$1 line n=0 where glob classes class ere ok
+  privacy_profile_name=none
+  privacy_allow_count=0
+  privacy_allow_lines=()
+  allow_worktree_home=(); allow_worktree_shape=(); allow_worktree_local=()
+  allow_history_home=();  allow_history_shape=();  allow_history_local=()
+
+  # The directives carry globs, and the globs must not be expanded by the
+  # shell while they are being read. Without this, "allow worktree
+  # testdata/payloads/**" would glob against the working tree and hand back
+  # whatever files happened to be there.
+  set -f
+
+  if [ ! -r "$file" ]; then
+    set +f
+    printf '     profile: none — no readable %s, so nothing is exempt\n' "$file"
+    return
+  fi
+
+  while IFS= read -r line || [ -n "$line" ]; do
+    n=$(( n + 1 ))
+    case $line in ''|'#'*) continue ;; esac
+    # Splitting on whitespace is the point: a directive is words. set -f above
+    # stops the second half of that from turning a glob into a filename.
+    # shellcheck disable=SC2086
+    set -- $line
+    case ${1:-} in
+      profile)
+        if [ $# -ne 2 ]; then
+          bad "$file line $n: 'profile' takes exactly one name"
+          continue
+        fi
+        privacy_profile_name=$2
+        ;;
+      allow)
+        if [ $# -lt 3 ]; then
+          bad "$file line $n: 'allow' needs at least: allow <worktree|history> <glob>"
+          continue
+        fi
+        where=$2; glob=$3; shift 3
+        case $where in
+          worktree|history) ;;
+          *) bad "$file line $n: '$where' is not a scope (worktree or history)"; continue ;;
+        esac
+        if [ $# -eq 0 ]; then classes='home shape local'; else classes="$*"; fi
+        ok=1
+        for class in $classes; do
+          case $class in
+            home|shape|local) ;;
+            *) bad "$file line $n: '$class' is not a class (home, shape or local)"; ok=0 ;;
+          esac
+        done
+        [ "$ok" -eq 1 ] || continue
+        ere=$(glob_ere "$glob")
+        for class in $classes; do
+          case "$where/$class" in
+            worktree/home)  allow_worktree_home+=("$ere")  ;;
+            worktree/shape) allow_worktree_shape+=("$ere") ;;
+            worktree/local) allow_worktree_local+=("$ere") ;;
+            history/home)   allow_history_home+=("$ere")   ;;
+            history/shape)  allow_history_shape+=("$ere")  ;;
+            history/local)  allow_history_local+=("$ere")  ;;
+          esac
+        done
+        privacy_allow_count=$(( privacy_allow_count + 1 ))
+        privacy_allow_lines+=("     $privacy_profile_name: $where $glob [$classes]")
+        ;;
+      *)
+        bad "$file line $n: '$1' is not a directive (profile or allow)"
+        ;;
+    esac
+  done < "$file"
+  set +f
+
+  if [ "$privacy_profile_name" = none ]; then
+    bad "$file has no 'profile <name>' line, so it does not say which tree it is for"
+    privacy_profile_name=unnamed
+  fi
+
+  printf '     profile: %s (%s), %d path allowance%s\n' \
+    "$privacy_profile_name" "$file" "$privacy_allow_count" \
+    "$( [ "$privacy_allow_count" -eq 1 ] || printf s )"
+  local l
+  for l in ${privacy_allow_lines[@]+"${privacy_allow_lines[@]}"}; do printf '%s\n' "$l"; done
+}
+
+# One grep's matches in, what the profile does not exempt out. Results come
+# back in SCAN_KEPT and the number the profile removed in SCAN_EXEMPT, rather
+# than through a pipe, because a pipeline runs this in a subshell and the
+# count would be lost before it was read.
+#
+# Exempt matches are not printed — that is what the profile is for — but the
+# count is, so a profile that has quietly grown too wide shows up in the output
+# of an ordinary run instead of in a git blame six months later.
+SCAN_KEPT=''
+SCAN_EXEMPT=0
+scan_filter() {
+  local class=$1 where=$2 keep=${3:-} raw=$4
+  local -n arr="allow_${where}_${class}"
+  local n_all n_kept ere
+  if [ -n "$keep" ]; then raw=$(printf '%s' "$raw" | grep -vE "$keep" || true); fi
+  n_all=$(printf '%s' "$raw" | grep -c '' || true)
+  if [ ${#arr[@]} -eq 0 ]; then
+    SCAN_KEPT=$raw; SCAN_EXEMPT=0; return
+  fi
+  ere=$(allow_ere "$where" "${arr[@]}")
+  SCAN_KEPT=$(printf '%s' "$raw" | grep -vE "$ere" || true)
+  n_kept=$(printf '%s' "$SCAN_KEPT" | grep -c '' || true)
+  SCAN_EXEMPT=$(( n_all - n_kept ))
+}
+
 # Things that must never reach a public repo. Not credentials — trufflehog and
 # trivy already cover those — but identity: private hostnames, home paths, an
 # employer, the names of private repositories.
@@ -107,7 +295,10 @@ run_go() {
 # clean, which is the failure this exists to stop.
 run_privacy() {
   step "private identifiers"
-  local patterns=(
+  load_privacy_profile "${AQM_PRIVACY_PROFILE:-scripts/privacy-profile}"
+
+  # class "shape" — the built-in patterns, matching by form.
+  local shape_pat=(
     '100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.[0-9]+\.[0-9]+'  # tailscale CGNAT
     '192\.168\.[0-9]+\.[0-9]+'
     '10\.[0-9]+\.[0-9]+\.[0-9]+'
@@ -124,41 +315,50 @@ run_privacy() {
   # working when the account running the build is not the one that wrote this.
   # Windows included, because a path pasted from a contributor's machine is
   # exactly how one of these arrives.
-  local home_pat='(/home/|/Users/)[a-z][a-z0-9_-]*|[A-Za-z]:\\\\Users\\\\[A-Za-z][A-Za-z0-9_.-]*'
-  local home_ok='(/home/|/Users/|Users\\\\)(u|you|user|username|example|runner|test|USERNAME|Public|Default)([/\\"`'"'"'[:space:]]|$)'
+  local home_pat='(/home/|/Users/)[a-z][a-z0-9_-]*|[A-Za-z]:\\Users\\[A-Za-z][A-Za-z0-9_.-]*'
+  local home_ok='(/home/|/Users/|Users\\)(u|you|user|username|example|runner|test|USERNAME|Public|Default)([/\`"'"'"'[:space:]]|$)'
 
-  local shape_count=${#patterns[@]}
+  # class "local" — the literal names from the untracked file. Same patterns,
+  # different exemption rules, because a literal private name is much more
+  # likely to be a real leak than a bare RFC1918 address in a doc.
   local extra=${AQM_PRIVACY_PATTERNS:-$HOME/.config/ai-quota-meter/privacy-patterns}
+  local local_pat=()
   local extra_count=0
   if [ -r "$extra" ]; then
     local line
     while IFS= read -r line; do
       case $line in ''|'#'*) continue ;; esac
-      patterns+=("$line")
+      local_pat+=("$line")
       extra_count=$((extra_count + 1))
     done < "$extra"
   fi
 
-  local hits=0
-  for pat in "${patterns[@]}"; do
-    local found
-    found=$(grep -rInE "$pat" . --exclude-dir=.git 2>/dev/null || true)
-    if [ -n "$found" ]; then
-      echo "$found"
-      hits=1
-    fi
+  local hits=0 hist_hit=0 raw pat
+  local wt_exempt=0 hist_exempt=0
+
+  # ---- the worktree ------------------------------------------------------
+  for pat in "${shape_pat[@]}"; do
+    raw=$(grep -rInE "$pat" . --exclude-dir=.git 2>/dev/null || true)
+    scan_filter shape worktree '' "$raw"
+    if [ -n "$SCAN_KEPT" ]; then echo "$SCAN_KEPT"; hits=1; fi
+    wt_exempt=$(( wt_exempt + SCAN_EXEMPT ))
   done
 
-  local homes
-  homes=$(grep -rInE "$home_pat" . --exclude-dir=.git 2>/dev/null \
-    | grep -vE "$home_ok" || true)
-  if [ -n "$homes" ]; then
-    echo "$homes"
-    hits=1
-  fi
+  raw=$(grep -rInE "$home_pat" . --exclude-dir=.git 2>/dev/null || true)
+  scan_filter home worktree "$home_ok" "$raw"
+  if [ -n "$SCAN_KEPT" ]; then echo "$SCAN_KEPT"; hits=1; fi
+  wt_exempt=$(( wt_exempt + SCAN_EXEMPT ))
 
-  # The history pass. Everything above reads the worktree, which is only what
-  # the repository looks like now. A blob committed once is public for good.
+  for pat in ${local_pat[@]+"${local_pat[@]}"}; do
+    raw=$(grep -rInE "$pat" . --exclude-dir=.git 2>/dev/null || true)
+    scan_filter local worktree '' "$raw"
+    if [ -n "$SCAN_KEPT" ]; then echo "$SCAN_KEPT"; hits=1; fi
+    wt_exempt=$(( wt_exempt + SCAN_EXEMPT ))
+  done
+
+  # ---- history -----------------------------------------------------------
+  # Everything above reads the worktree, which is only what the repository
+  # looks like now. A blob committed once is public for good.
   #
   # AQM_PRIVACY_SKIP_HISTORY=1 turns this off for a shallow checkout, where
   # rev-list sees one commit and a clean result would mean nothing. CI sets
@@ -172,36 +372,54 @@ run_privacy() {
     bad "history: this clone is shallow, so the history check cannot run"
     echo "     fetch with --unshallow, or set AQM_PRIVACY_SKIP_HISTORY=1 to accept the gap"
   else
-    local revs hist_hits=0
+    local revs
     revs=$(git rev-list --all 2>/dev/null)
     if [ -n "$revs" ]; then
-      local hfound
-      for pat in "${patterns[@]}"; do
+      for pat in "${shape_pat[@]}"; do
         # shellcheck disable=SC2086
-        hfound=$(git grep -InE "$pat" $revs -- 2>/dev/null | head -20 || true)
-        if [ -n "$hfound" ]; then echo "$hfound"; hist_hits=1; fi
+        raw=$(git grep -InE "$pat" $revs -- 2>/dev/null || true)
+        scan_filter shape history '' "$raw"
+        if [ -n "$SCAN_KEPT" ]; then echo "$SCAN_KEPT" | head -20; hits=1; hist_hit=1; fi
+        hist_exempt=$(( hist_exempt + SCAN_EXEMPT ))
       done
       # shellcheck disable=SC2086
-      hfound=$(git grep -InE "$home_pat" $revs -- 2>/dev/null \
-        | grep -vE "$home_ok" | head -20 || true)
-      if [ -n "$hfound" ]; then echo "$hfound"; hist_hits=1; fi
+      raw=$(git grep -InE "$home_pat" $revs -- 2>/dev/null || true)
+      scan_filter home history "$home_ok" "$raw"
+      if [ -n "$SCAN_KEPT" ]; then echo "$SCAN_KEPT" | head -20; hits=1; hist_hit=1; fi
+      hist_exempt=$(( hist_exempt + SCAN_EXEMPT ))
+      for pat in ${local_pat[@]+"${local_pat[@]}"}; do
+        # shellcheck disable=SC2086
+        raw=$(git grep -InE "$pat" $revs -- 2>/dev/null || true)
+        scan_filter local history '' "$raw"
+        if [ -n "$SCAN_KEPT" ]; then echo "$SCAN_KEPT" | head -20; hits=1; hist_hit=1; fi
+        hist_exempt=$(( hist_exempt + SCAN_EXEMPT ))
+      done
 
-      if [ "$hist_hits" -eq 1 ]; then
+      if [ "$hist_hit" -eq 1 ]; then
         echo "     ^ these are in HISTORY. Removing them from HEAD does nothing:"
         echo "       the blob stays fetchable until the history is rewritten."
-        hits=1
-      else
-        echo "     history: $(echo "$revs" | wc -l) commits scanned, clean"
       fi
+      echo "     history: $(echo "$revs" | wc -l) commits scanned"
     fi
   fi
 
   if [ "$extra_count" -gt 0 ]; then
     printf '     %d shape patterns + %d local from %s\n' \
-      "$((shape_count + 1))" "$extra_count" "$extra"
+      "$(( ${#shape_pat[@]} + 1 ))" "$extra_count" "$extra"
   else
     printf '     %d shape patterns; no local name list at %s\n' \
-      "$((shape_count + 1))" "$extra"
+      "$(( ${#shape_pat[@]} + 1 ))" "$extra"
+  fi
+  # An exempted match is not shown, so the count is. A profile that has quietly
+  # grown too wide then shows up in the output of an ordinary run rather than
+  # in a git blame six months later.
+  if [ "$wt_exempt" -gt 0 ] || [ "$hist_exempt" -gt 0 ]; then
+    printf '     exempted by profile %s: %d in the worktree, %d in history (not shown above)\n' \
+      "$privacy_profile_name" "$wt_exempt" "$hist_exempt"
+    if [ "$hist_exempt" -gt 0 ]; then
+      echo "       the exempted history blobs stay fetchable by SHA too; being private here"
+      echo "       is what keeps that harmless."
+    fi
   fi
   [ "$hits" -eq 0 ] && ok "no private identifiers" || bad "private identifiers in the tree"
 }
@@ -213,7 +431,7 @@ run_scan() {
     exit 2
   fi
 
-  if [ "${SKIP_TRIVY:-}" = "1" ]; then
+  if [ "${SKIP_TRIVY:-}" = 1 ]; then
     echo; echo "skipping trivy (SKIP_TRIVY=1)"
   else
   step "trivy fs ($rt)"
@@ -251,7 +469,7 @@ case "${1:-all}" in
   scan)    run_scan ;;
   privacy) run_privacy ;;
   all)     run_go; run_privacy; run_scan ;;
-  *)    echo "usage: $0 [all|go|scan]" >&2; exit 2 ;;
+  *)    echo "usage: $0 [all|go|scan|privacy]" >&2; exit 2 ;;
 esac
 
 echo

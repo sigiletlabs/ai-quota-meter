@@ -4,6 +4,21 @@
 # Enable in a fresh clone (it is per-clone, git does not ship hooks):
 #   git config core.hooksPath .githooks
 #
+# Then check it, because a clone that thinks it is protected is worse than one
+# that knows it is not:
+#   git config --get core.hooksPath      # must print .githooks
+#   git rev-parse --git-path hooks      # must end in .githooks/
+#
+# If that second one prints some other directory, this hook is not running, and
+# neither is .githooks/pre-push. The usual cause is a global core.hooksPath in
+# ~/.gitconfig or /etc/gitconfig: local config beats global, but a fresh clone
+# has no local config yet, so until you set one the global path wins and git
+# looks for hooks there instead. No tracked file in this repository can prevent
+# that — hooksPath is read from config before git decides which hooks exist, so
+# nothing committed is ever consulted. Setting it per clone is the fix;
+# `git config --global init.templateDir <dir>` carrying the same setting is the
+# once-per-machine one.
+#
 # CI re-runs the same script on the pushed range, so a clone that skips this
 # still cannot land a credited commit on a branch - it just finds out later,
 # when the fix costs a rebase instead of a retype.
