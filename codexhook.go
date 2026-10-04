@@ -35,6 +35,9 @@
 //   - Identity comes from auth.json, prefixed "codex-" so a Codex account can
 //     never share a file with a Claude one. No identity, no record: design
 //     rule 3, unchanged.
+//   - The rollout itself comes from hook stdin, so its path is whatever the
+//     caller wrote, and only one inside $CODEX_HOME/sessions is opened. See
+//     resolveCodexRollout for exactly how much that is worth.
 //
 // # NEVER COST CODEX ITS TURN
 //
@@ -56,10 +59,10 @@ import (
 )
 
 // codexTailBytes is how much of the end of a rollout is searched for the last
-// rate-limit reading. A rollout on this machine reached 20 MB in one day, so
-// reading it whole on every turn is not an option. The token_count event
-// follows each model response, so it sits within the last few lines of a
-// finished turn; 8 MB clears even a turn whose final tool output is enormous.
+// rate-limit reading. A rollout on this machine reached 47 MB, so reading it
+// whole on every turn is not an option. The token_count event follows each
+// model response, so it sits within the last few lines of a finished turn; 8 MB
+// clears even a turn whose final tool output is enormous.
 const codexTailBytes = 8 << 20
 
 // codexFreshFor is how old the newest reading may be and still count as this
@@ -176,50 +179,179 @@ func codexRecord(rl codexRateLimits, account, sessionID string, now time.Time) (
 	return r, extras
 }
 
+// codexSessionsDir is where Codex keeps rollouts: $CODEX_HOME/sessions, the
+// shape the real paths have — sessions/2026/10/04/rollout-<when>-<uuid>.jsonl,
+// checked on this box rather than recalled. It is the boundary
+// resolveCodexRollout enforces, and it is derived from codexConfigPath rather
+// than from $CODEX_HOME again, so the two can never resolve to different homes.
+func codexSessionsDir() (string, error) {
+	config, err := codexConfigPath()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(filepath.Dir(config), "sessions"), nil
+}
+
+// resolveCodexRollout is the check every transcript_path goes through before
+// the file is opened, and it returns the path that is opened. The value comes
+// off hook stdin, so it is data, not a decision.
+//
+// # WHAT THIS PROVABLY STOPS
+//
+// A name that points anywhere else. `..` cannot defeat the comparison, because
+// filepath.Rel cleans both of its arguments before it walks them
+// (path/filepath/path.go:188), and it is asked for the difference rather than
+// tested for a prefix.
+//
+// A symlink out of the tree, at the last component or in any middle one —
+// sessions/2026 -> /etc, or a symlink sitting on /etc/shadow. This is why both
+// sides are RESOLVED before they are compared. A Clean-and-prefix comparison
+// does not stop either: os.Open and Stat both follow symlinks, so a symlink
+// inside sessions pointing at /etc/shadow is a regular file outside the tree
+// that passes every purely lexical test. EvalSymlinks walks every component, so
+// one Lstat on the last name would not do. A symlink that stays inside sessions
+// is allowed and read, which is the point — a rollout moved there by hand is
+// still the session's own file.
+//
+// # WHAT IT DOES NOT STOP, STATED PLAINLY
+//
+// A caller who can already write into sessions needs no trick: it can write a
+// rollout there directly, and one that resolves inside the tree passes by
+// construction. Nor a swap of the resolved file between the checks and the
+// read — see below — which needs the same write access. So this is a
+// containment rule for a path, not a sandbox.
+//
+// Two Windows gaps are named rather than papered over. An 8.3 short name
+// (PROGRA~1) is a different string for the same directory and EvalSymlinks does
+// not resolve it, so a short-name spelling of the real path is refused rather
+// than followed; case is not a gap, because filepath.Rel compares path elements
+// with strings.EqualFold on Windows (path_windows.go:116) and so cannot be
+// fooled by casing the caller got wrong. Refusing is the direction that costs a
+// quota reading nothing and a hook no turn.
+func resolveCodexRollout(path string) (string, error) {
+	if !filepath.IsAbs(path) {
+		return "", fmt.Errorf("transcript_path %q is not absolute", path)
+	}
+	// Cleaned before anything compares it, so the value in the message below is
+	// the one that was tested. Rel would clean it again; this makes the test and
+	// the complaint about the same string.
+	clean := filepath.Clean(path)
+
+	dir, err := codexSessionsDir()
+	if err != nil {
+		return "", err
+	}
+	root, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return "", fmt.Errorf("cannot resolve %s: %w", dir, err)
+	}
+	resolved, err := filepath.EvalSymlinks(clean)
+	if err != nil {
+		return "", fmt.Errorf("cannot resolve %s: %w", clean, err)
+	}
+
+	// The directory itself counts as inside: a path naming sessions rather than
+	// a file in it is refused by the regular-file check below, not here.
+	rel, err := filepath.Rel(root, resolved)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("transcript_path %s resolves to %s, outside %s", path, resolved, root)
+	}
+	return resolved, nil
+}
+
 // lastCodexRateLimits returns the newest token_count event for limit "codex"
 // in the last codexTailBytes of a rollout, or nil if there is none.
+//
+// A missing file, a refusal from resolveCodexRollout and a read error are all
+// just an error: the hook drops the turn either way, and says nothing.
 func lastCodexRateLimits(path string) (*codexEvent, error) {
-	f, err := os.Open(path)
+	resolved, err := resolveCodexRollout(path)
+	if err != nil {
+		return nil, err
+	}
+	// Lstat BEFORE the open, and this is the load-bearing order. os.Open on a
+	// FIFO blocks in the kernel until a writer appears, so a regular-file test
+	// made after opening cannot stop it: the open is already stuck. Lstat reads
+	// the directory entry and cannot block, so a FIFO, a directory, a device or
+	// a socket is refused here — including one INSIDE sessions, which
+	// containment alone would wave through, because the caller named a place
+	// the hook is allowed to look.
+	info, err := os.Lstat(resolved)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s is not a regular file (%s)", resolved, info.Mode().Type())
+	}
+
+	f, err := os.Open(resolved)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
-	info, err := f.Stat()
+	// Asked again of the descriptor, because this is what is about to be read:
+	// between the Lstat and the open the name can have been replaced. Cheap, and
+	// the only check here that describes the bytes rather than the path.
+	open, err := f.Stat()
 	if err != nil {
 		return nil, err
 	}
-	offset := info.Size() - codexTailBytes
+	if !open.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s was no longer a regular file when it was opened (%s)", resolved, open.Mode().Type())
+	}
+	offset := open.Size() - codexTailBytes
 	if offset < 0 {
 		offset = 0
 	}
-	buf := make([]byte, info.Size()-offset)
+	buf := make([]byte, open.Size()-offset)
 	if _, err := f.ReadAt(buf, offset); err != nil && err != io.EOF {
 		return nil, err
 	}
 
+	// Backwards over the lines, one at a time, and never as a slice of them:
+	// bytes.Split allocates a 24-byte header per newline, so an 8 MB file of
+	// bare newlines asks for 8.4 M of them — 200 MB of TotalAlloc for an 8 MB
+	// buffer, and a peak RSS over 200 MB. Real rollouts are nothing like that
+	// (15.8 KB a line, measured on the largest), but codexTailBytes is the only
+	// bound this code has, so the cap has to bound the memory too.
+	//
 	// The first line may have been cut in half by the seek. It needs no
 	// special case: half a JSON object does not parse, so it is skipped below.
-	lines := bytes.Split(buf, []byte("\n"))
-	marker := []byte(`"rate_limits"`)
-	for i := len(lines) - 1; i >= 0; i-- {
-		if !bytes.Contains(lines[i], marker) {
-			continue
+	for end := len(buf); end > 0; {
+		var line []byte
+		if i := bytes.LastIndexByte(buf[:end], '\n'); i >= 0 {
+			line, end = buf[i+1:end], i
+		} else {
+			line, end = buf[:end], 0
 		}
-		var ev codexEvent
-		if json.Unmarshal(lines[i], &ev) != nil {
-			continue
+		if ev := codexReadingIn(line); ev != nil {
+			return ev, nil
 		}
-		rl := ev.Payload.RateLimits
-		if ev.Type != "event_msg" || ev.Payload.Type != "token_count" || rl == nil {
-			continue
-		}
-		// An absent limit_id is an older Codex that had only the one limit.
-		if rl.LimitID != "" && rl.LimitID != "codex" {
-			continue
-		}
-		return &ev, nil
 	}
 	return nil, nil
+}
+
+// codexReadingIn returns the reading a rollout line carries, or nil for a line
+// that carries none: not JSON, not an event, not a token_count, or the other
+// limit's counter. The marker test is a cheap reject on a file of tens of
+// thousands of lines, not a parser.
+func codexReadingIn(line []byte) *codexEvent {
+	if !bytes.Contains(line, []byte(`"rate_limits"`)) {
+		return nil
+	}
+	var ev codexEvent
+	if json.Unmarshal(line, &ev) != nil {
+		return nil
+	}
+	rl := ev.Payload.RateLimits
+	if ev.Type != "event_msg" || ev.Payload.Type != "token_count" || rl == nil {
+		return nil
+	}
+	// An absent limit_id is an older Codex that had only the one limit.
+	if rl.LimitID != "" && rl.LimitID != "codex" {
+		return nil
+	}
+	return &ev
 }
 
 // codexAccount is "codex-" plus tokens.account_id from auth.json, or "" when

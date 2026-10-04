@@ -136,6 +136,15 @@ Claude Code reading is recorded: the snapshot, the history line and the watch
 that drives the ntfy alerts. It prints nothing and always exits 0, because Codex
 treats hook output as model context and a non-zero exit as a failed hook.
 
+**The rollout has to live under `$CODEX_HOME/sessions`.** That is where Codex
+writes it, and the hook resolves symlinks on both sides before comparing, so a
+`transcript_path` pointing anywhere else — a symlink out of the tree, a `..`, an
+absolute path elsewhere — is refused rather than read. A refused rollout is
+recorded nowhere and still exits 0, so if the dashboard shows no Codex reading
+at all, check that path before anything else. Symlinks that stay inside
+`sessions/` are followed, which is what lets a rollout be moved or restored by
+hand.
+
 **Codex asks you to trust the hook once.** It will not run a new hook until you
 do. The next time Codex starts it offers to review hooks; choose "Trust All and
 Continue", or trust just this one. This program never writes the trust entry
@@ -154,6 +163,7 @@ What it records, and what it drops:
 | `limit_id` other than `codex` (a `premium` limit also appears) | ignored, so two counters never share one watch |
 | Newest reading more than 15 minutes old | ignored, since it is not this turn's |
 | No `tokens.account_id` in `auth.json` | nothing recorded, the same rule as Claude Code |
+| `transcript_path` resolving outside `$CODEX_HOME/sessions` | refused, and nothing recorded — still exit 0 |
 
 Files are keyed `codex-<account_id>`, so a Codex account never shares a file
 with a Claude account: `rate-limits-codex-<id>.json`, `.jsonl` and
