@@ -67,7 +67,14 @@ func windowField(label string, w window, now time.Time) string {
 // percentage beside it is stale, so it returns "" rather than a negative
 // countdown.
 func timeLeft(resetsAt int64, now time.Time) string {
-	secs := resetsAt - now.Unix()
+	return timeLeftAt(time.Unix(resetsAt, 0), now)
+}
+
+// timeLeftAt is timeLeft for a timestamp that already has a type. The OpenCode
+// windows report RFC 3339 rather than a unix epoch, and one countdown
+// implementation beats two.
+func timeLeftAt(t, now time.Time) string {
+	secs := int(t.Sub(now) / time.Second)
 	if secs <= 0 {
 		return ""
 	}

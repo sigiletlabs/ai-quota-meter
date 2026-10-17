@@ -52,9 +52,9 @@ const (
 // Windows locks byte ranges rather than whole files, so this locks the first
 // byte and nothing else ever locks a different range. The file need not be
 // that long: a range lock does not require the bytes to exist.
-func tryLock(f *os.File) bool {
+func tryLock(f *os.File) (bool, error) {
 	var ol syscall.Overlapped
-	ret, _, _ := procLockFileEx.Call(
+	ret, _, err := procLockFileEx.Call(
 		f.Fd(),
 		uintptr(lockfileExclusiveLock|lockfileFailImmediately),
 		0, // reserved, must be zero
@@ -62,7 +62,13 @@ func tryLock(f *os.File) bool {
 		0, // bytes to lock, high word
 		uintptr(unsafe.Pointer(&ol)),
 	)
-	return ret != 0
+	if ret != 0 {
+		return true, nil
+	}
+	if err == syscall.Errno(0) {
+		return false, os.ErrPermission // fallback; not really expected
+	}
+	return false, err
 }
 
 // unlock releases the lock, dropping any error for the same reason the Unix

@@ -48,7 +48,11 @@ func runWatchdog(now time.Time) int {
 		return 1
 	}
 
-	st := readWatchState(watchStatePath(env.StateDir, account))
+	st, err := readWatchState(watchStatePath(env.StateDir, account))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ai-quota-meter: reading watch state: %v\n", err)
+		return 1
+	}
 	if st.LastReadingAt == 0 {
 		// Never seen a reading at all. On a fresh install this is normal and
 		// transient, and alerting about it would fire once for everyone who
@@ -59,6 +63,11 @@ func runWatchdog(now time.Time) int {
 	}
 
 	quiet := now.Sub(time.Unix(st.LastReadingAt, 0))
+	if quiet < 0 {
+		// Wall clock moved backwards; the monotonic reading is gone, so we cannot judge silence. Say so rather than risk a false alarm or a silenced alarm.
+		fmt.Fprintln(os.Stderr, "ai-quota-meter: clock moved backwards; cannot judge silence")
+		return 0
+	}
 	if quiet < silentFor {
 		return 0
 	}
@@ -74,7 +83,9 @@ func runWatchdog(now time.Time) int {
 		return 0
 	}
 
-	markPushAttempt(env.StateDir, account, now)
+	if !tryReservePush(env.StateDir, account, now) {
+		return 0
+	}
 	if err := notifyAlert(a); err != nil {
 		fmt.Fprintf(os.Stderr, "ai-quota-meter: watchdog alert not sent: %v\n", err)
 		return 1

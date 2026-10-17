@@ -159,7 +159,7 @@ What it records, and what it drops:
 | --- | --- |
 | A 300-minute window | recorded as the five-hour window |
 | A 10080-minute window | recorded as the weekly window |
-| A window of any other length (a plus plan has been seen with 43200) | not recorded; named once in an "unknown rate-limit window" alert |
+| A window of any other length (a plus plan has been seen with 43200) | recorded as the weekly window when it is the longest such window; any shorter one is named once in an "unknown rate-limit window" alert |
 | `limit_id` other than `codex` (a `premium` limit also appears) | ignored, so two counters never share one watch |
 | Newest reading more than 15 minutes old | ignored, since it is not this turn's |
 | No `tokens.account_id` in `auth.json` | nothing recorded, the same rule as Claude Code |
@@ -190,3 +190,46 @@ conversation items, not rate limits. So no SQLite reader is needed.
   set has grown over releases. Detecting the version would mean parsing
   `codex --version` and keeping a table of which release learned which
   identifier, to avoid a startup message that already names the problem.
+
+## Upstream context (verified 2026-10-13, Codex 0.162.1)
+
+- **Codex 0.156.0** shipped a `/usage` analytics dashboard with account and plan
+  usage history (binary string: "Preview five-hour and weekly allowance history
+  for consumer accounts in /analytics"). That overlaps part of issue #20's
+  capture rationale; this meter's remaining Codex value is the ntfy alerts and the
+  STATE_DIR contract with api-dashboard. Do not rebuild the history side, and do
+  not assume the capture is the only history.
+- **Codex 0.155.0 (#44288)** fixed command hooks hanging on blocked stdin — the
+  host-side twin of issue #16, worth knowing wherever hook behaviour above is
+  discussed.
+
+Everything else in the upstream check was unchanged: all five status_line widget
+identifiers still present; Codex Stop hook + transcript_path + rollout shape still
+work (proven empirically by captures landing 2026-10-11/12); Claude's shapes
+unchanged; Codex's new rate_limits fields are ignored by codexhook's narrow
+struct.
+
+## Rolling windows, not fixed ones (issue #70)
+
+Codex reports a **rolling** weekly window: its `resets_at` slides with
+activity rather than sitting on a fixed boundary, and OpenAI resets Codex
+counters at will. On this account's plan the window is ≈ last activity +
+7 days and no 300-minute window is reported, so the capture carries only the
+weekly figure.
+
+Consequences the watch acts on, for any account whose UUID is prefixed
+`codex-`:
+
+- **No scheme-change or summary alerts.** A sliding boundary is the normal
+  shape of a rolling window, so a scheme alert would fire on every reading.
+  There is no closed window to summarise.
+- **Threshold alerts are keyed by level, not by `resets_at`.** Re-arm once
+  usage drops back below the level, so a reset (86% → 0%) can re-alert
+  climbing back through 80/90. The hourly push cap bounds any spam.
+- **No burn-rate projection.** The crudest honest number needs a window
+  start; a rolling window has none, so the projection would be nonsense.
+- **No anomaly detection.** A drop in a rolling window is legitimate by
+  construction; backwards moves are normal.
+
+Nothing here applies to Claude accounts, whose windows are fixed and whose
+behaviour is unchanged (issue #10 for the five-hour guard).

@@ -535,3 +535,41 @@ func TestStatusLineReadSurvivesAZeroByteReader(t *testing.T) {
 type zeroBytes struct{}
 
 func (zeroBytes) Read([]byte) (int, error) { return 0, nil }
+
+// renderHook exists so a test can induce a panic before the real line is
+// printed and exercise the deferred recover. Without it, the recover is
+// unreachable from the test suite and can be deleted green.
+func TestRunPanicBeforeRenderReturnsFallbackLine(t *testing.T) {
+	old := renderHook
+	t.Cleanup(func() { renderHook = old })
+	renderHook = func() { panic("boom") }
+
+	var buf bytes.Buffer
+	status := run(strings.NewReader("{}"), &buf, "", time.Now())
+	if status != 0 {
+		t.Errorf("status = %d, want 0 — a panic must not produce a non-zero exit", status)
+	}
+	if buf.String() != fallbackLine {
+		t.Errorf("stdout = %q, want fallbackLine %q", buf.String(), fallbackLine)
+	}
+}
+
+// captureHook runs after the real line is printed, so a panic there must not
+// emit a second line. The printed flag's only purpose is to prevent that.
+func TestRunPanicAfterPrintLeavesRealLineIntact(t *testing.T) {
+	old := captureHook
+	t.Cleanup(func() { captureHook = old })
+	captureHook = func() { panic("boom") }
+
+	var buf bytes.Buffer
+	status := run(strings.NewReader("{}"), &buf, "", time.Now())
+	if status != 0 {
+		t.Errorf("status = %d, want 0 — a panic must not produce a non-zero exit", status)
+	}
+	if !strings.Contains(buf.String(), "claude") {
+		t.Errorf("stdout = %q, want the real line", buf.String())
+	}
+	if strings.Count(buf.String(), "claude") > 1 {
+		t.Errorf("stdout = %q, want exactly one line — the fallback must not fire after the real line", buf.String())
+	}
+}

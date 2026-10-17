@@ -4,7 +4,7 @@ Documentation=https://github.com/sigiletlabs/ai-quota-meter
 
 [Service]
 Type=oneshot
-ExecStart=%h/.local/bin/ai-quota-meter --watchdog
+ExecStart="%h/.local/bin/ai-quota-meter" --watchdog
 # The binary is static and reads two files; nothing here needs more.
 PrivateTmp=true
 NoNewPrivileges=true

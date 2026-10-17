@@ -134,7 +134,7 @@ func replayReal(t *testing.T, dir, account string, until string) []alert {
 				t.Fatalf("appendAnomalyLog: %v", err)
 			}
 		}
-		st := readWatchState(watchStatePath(dir, account))
+		st, _ := readWatchState(watchStatePath(dir, account))
 		if chosen := pickAlert(pending, st.LastPushAttemptAt, now); chosen != nil {
 			markPushAttempt(dir, account, now)
 			markDelivered(dir, account, *chosen, now)
@@ -572,7 +572,7 @@ func TestSuppressedAlertIsNotLost(t *testing.T) {
 	if hasKind(pending, alertThreshold) == nil {
 		t.Fatal("the threshold was never derived")
 	}
-	st := readWatchState(watchStatePath(dir, "acct"))
+	st, _ := readWatchState(watchStatePath(dir, "acct"))
 	if pickAlert(pending, st.LastPushAttemptAt, base.Add(time.Minute)) != nil {
 		t.Fatal("the cap did not suppress it")
 	}
@@ -613,7 +613,7 @@ func TestDeliveryLogIsPruned(t *testing.T) {
 	markDelivered(dir, "acct", old, now.Add(-60*24*time.Hour))
 	markDelivered(dir, "acct", alert{Kind: alertSummary, Key: "recent"}, now)
 
-	st := readWatchState(watchStatePath(dir, "acct"))
+	st, _ := readWatchState(watchStatePath(dir, "acct"))
 	if _, ok := st.Delivered["ancient"]; ok {
 		t.Error("a 60-day-old delivery record was not pruned")
 	}

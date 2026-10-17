@@ -62,11 +62,14 @@ func main() {
 			// Codex's Stop hook. Always exits 0 and never writes to stdout;
 			// see codexhook.go.
 			os.Exit(runCodexHook(os.Stdin, time.Now()))
+		case "--opencode-usage":
+			os.Exit(runOpenCodeUsage(os.Stdout, captureEnvFromOS().StateDir, time.Now()))
+		case "--opencode-capture":
+			os.Exit(runOpenCodeCapture(os.Stdout, captureEnvFromOS().StateDir, time.Now()))
 		case "--help", "-h":
 			usage(os.Stdout)
 			os.Exit(0)
 		}
-		// Anything else falls through and renders the bar. That is
 		// deliberate, not an oversight: Claude Code invokes this with no
 		// arguments today, and if a future version starts passing one,
 		// rejecting it would blank the bar. Design rule 1 outranks argument
@@ -155,6 +158,9 @@ and prints the bar. That is how Claude Code calls it; you do not do it by hand.
   --codex-hook   record Codex's quota after a turn (Codex runs this; --install
                  adds it to ~/.codex/hooks.json)
   --version, -v  print the version
+  --opencode-usage  print the Opencode Go subscription quota windows
+  --opencode-capture  fetch and record them, for a timer; the status line
+                  reads that record and never makes a call of its own
   --help, -h     this
 
 With no arguments and a terminal, it installs itself if it is not set up yet,
@@ -170,6 +176,15 @@ Notifications are opt-in: see the README for the ntfy topic file.
 https://github.com/sigiletlabs/ai-quota-meter
 `, versionString())
 }
+
+// nowLn is injectable for tests that need determinism.
+var nowLn = time.Now
+
+// renderHook, if set, runs at the top of run; it exists so a test can
+// induce a panic and exercise the deferred recover. captureHook runs just
+// before capture, so a panic there can be distinguished from one that beats
+// the real line to stdout.
+var renderHook, captureHook func()
 
 // run is main's body, taking its world as arguments so the never-blank
 // guarantee is testable. The return value is the process exit status, and it
@@ -191,6 +206,10 @@ func run(stdin io.Reader, stdout io.Writer, columns string, now time.Time) (stat
 		}
 		status = 0
 	}()
+
+	if renderHook != nil {
+		renderHook()
+	}
 
 	// Drain stdin unconditionally. Claude Code is writing to a pipe, and
 	// exiting without reading it leaves the writer facing EPIPE. A read error
@@ -219,8 +238,15 @@ func run(stdin io.Reader, stdout io.Writer, columns string, now time.Time) (stat
 	// capture failure can reach the bar. os.Stdout is unbuffered in Go, so
 	// this single write *is* the flush — there is no buffer left holding the
 	// line when Claude Code cancels this command on the next update.
+	//
+	// Claude figures only. The OpenCode Go windows belong in OpenCode's own
+	// sidebar (--opencode-usage), not on Claude Code's bar.
 	fmt.Fprintln(stdout, fit(renderFields(p, now), columns))
 	printed = true
+
+	if captureHook != nil {
+		captureHook()
+	}
 
 	capture(p, now)
 	return 0
@@ -353,13 +379,13 @@ func capture(p payload, now time.Time) {
 	if p.RateLimits != nil {
 		extras = p.RateLimits.Extra
 	}
-	saveReading(env.StateDir, account, "Claude", r, extras, now)
+	saveReading(env.StateDir, account, "Claude", r, extras, now, claudeTier(env.ClaudeConfig))
 }
 
 // saveReading writes an attributed reading to the snapshot and the history,
 // then folds it into the watch. Shared by the Claude Code status line and the
 // Codex Stop hook (codexhook.go); product names the vendor in any alert.
-func saveReading(stateDir, account, product string, r record, extras []string, now time.Time) {
+func saveReading(stateDir, account, product string, r record, extras []string, now time.Time, plan ...string) {
 	// The two writes are independent: a failed snapshot should not cost the
 	// history line, and vice versa. Both errors are logged and dropped.
 	switch err := writeSnapshot(stateDir, account, r); {
@@ -381,7 +407,7 @@ func saveReading(stateDir, account, product string, r record, extras []string, n
 	// line went out long ago and both files are already written, so the worst
 	// a hung ntfy can cost is this process being killed on the next update
 	// with nothing left half-done.
-	runWatch(stateDir, account, product, r, extras, now)
+	runWatch(stateDir, account, product, r, extras, now, plan...)
 }
 
 // runWatch folds the reading into the account's watch and pushes at most one
@@ -392,8 +418,8 @@ func saveReading(stateDir, account, product string, r record, extras []string, n
 // evidence. The attempt is marked before the send and the delivery only after
 // it, so an unreachable server cannot be retried on every turn and a failed
 // send is not mistaken for a delivered one.
-func runWatch(stateDir, account, product string, r record, extras []string, now time.Time) {
-	pending, found := checkWatch(stateDir, account, r, extras, now)
+func runWatch(stateDir, account, product string, r record, extras []string, now time.Time, plan ...string) {
+	pending, found := checkWatch(stateDir, account, r, extras, now, plan...)
 
 	if found != nil {
 		if err := appendAnomalyLog(stateDir, account, *found); err != nil {
@@ -401,7 +427,7 @@ func runWatch(stateDir, account, product string, r record, extras []string, now 
 		}
 	}
 
-	st := readWatchState(watchStatePath(stateDir, account))
+	st, _ := readWatchState(watchStatePath(stateDir, account))
 	chosen := pickAlert(pending, st.LastPushAttemptAt, now)
 	if chosen == nil {
 		if len(pending) > 0 {
@@ -410,7 +436,10 @@ func runWatch(stateDir, account, product string, r record, extras []string, now 
 		return
 	}
 
-	markPushAttempt(stateDir, account, now)
+	if !tryReservePush(stateDir, account, now) {
+		debugf("watch: %d alert(s) pending, held by the rate cap", len(pending))
+		return
+	}
 	if err := notifyAlert(forProduct(*chosen, product)); err != nil {
 		debugf("watch: %s not sent: %v", chosen.Kind, err)
 		return

@@ -1,0 +1,10 @@
+# Privacy patterns — tracked in the repo so CI runs the same gate as a
+# local build. One extended-regex per line. Lines starting with '#' are
+# comments. Blank lines are ignored.
+#
+# Override the whole file with AQM_PRIVACY_PATTERNS=<path>.
+#
+# The UUID shape matches any UUID, including real account UUIDs. The
+# synthetic test fixtures use aaaaaaaaa-0000-4000-8000-… and
+# bbbbbbbb-0000-4000-8000-…, which are allowlisted in ci.sh.
+[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}

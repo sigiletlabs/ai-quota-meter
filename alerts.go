@@ -36,6 +36,7 @@ type alertKind string
 const (
 	alertAnomaly   alertKind = "anomaly"
 	alertWatchdog  alertKind = "watchdog"
+	alertPlan      alertKind = "plan"
 	alertScheme    alertKind = "scheme"
 	alertField     alertKind = "field"
 	alertThreshold alertKind = "threshold"
@@ -54,14 +55,16 @@ func (k alertKind) priority() int {
 		return 0
 	case alertWatchdog:
 		return 1
-	case alertScheme:
+	case alertPlan:
 		return 2
-	case alertField:
+	case alertScheme:
 		return 3
-	case alertThreshold:
+	case alertField:
 		return 4
-	default:
+	case alertThreshold:
 		return 5
+	default:
+		return 6
 	}
 }
 
@@ -237,6 +240,17 @@ func watchdogAlert(silentFor time.Duration, now time.Time) alert {
 		Body: fmt.Sprintf("No usage reading captured for %s. The status line may not be running, or Claude Code has stopped sending rate limits. Quota alerts are not working until this is fixed.",
 			roundHours(silentFor)),
 		Tags: "mute",
+	}
+}
+
+// planAlert fires once when the recognised plan/tier changes.
+func planAlert(oldPlan, newPlan string) alert {
+	return alert{
+		Kind:  alertPlan,
+		Key:   "plan:" + newPlan,
+		Title: "Plan changed",
+		Body:  fmt.Sprintf("Plan recognised as %s; previously %s. Quota figures now mean a different scheme.", newPlan, oldPlan),
+		Tags:  "repeat",
 	}
 }
 

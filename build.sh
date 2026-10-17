@@ -15,6 +15,16 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
+# Refuse to build from a dirty tree. `git describe --dirty` only reports
+# *tracked* modifications, but `go build` compiles every .go file present.
+# An untracked file can therefore end up in a released binary without the
+# version stamp reflecting it.
+if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
+	echo "error: working tree is not clean — commit or stash before building" >&2
+	git status --short >&2
+	exit 1
+fi
+
 version=$(git describe --tags --always --dirty 2>/dev/null || echo dev)
 
 # Targets for --all. Windows is included because it compiles and runs; it is

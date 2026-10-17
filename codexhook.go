@@ -83,11 +83,12 @@ type codexWindow struct {
 	ResetsAt      int64    `json:"resets_at"`
 }
 
-// codexRateLimits is payload.rate_limits. credits, plan_type and the rest are
-// not declared: nothing here has a use for them, and a field that is never
+// codexRateLimits is payload.rate_limits. credits and the rest are not
+// declared: nothing here has a use for them, and a field that is never
 // read cannot leak into a file or a notification.
 type codexRateLimits struct {
 	LimitID   string       `json:"limit_id"`
+	PlanType  string       `json:"plan_type"`
 	Primary   *codexWindow `json:"primary"`
 	Secondary *codexWindow `json:"secondary"`
 }
@@ -141,42 +142,65 @@ func runCodexHook(stdin io.Reader, now time.Time) int {
 		return 0
 	}
 
-	r, extras := codexRecord(*ev.Payload.RateLimits, account, in.SessionID, now)
+	r, extras, plan := codexRecord(*ev.Payload.RateLimits, account, in.SessionID, now)
 	if r.FiveHour == nil && r.SevenDay == nil && len(extras) == 0 {
 		debugf("codex hook: no usable window in the reading")
 		return 0
 	}
-	saveReading(captureEnvFromOS().StateDir, account, "Codex", r, extras, now)
+	saveReading(captureEnvFromOS().StateDir, account, "Codex", r, extras, now, plan)
 	return 0
 }
 
 // codexRecord places Codex's windows into the record Claude Code readings use,
 // by their stated length. Windows of any other length come back as extras.
-func codexRecord(rl codexRateLimits, account, sessionID string, now time.Time) (record, []string) {
+func codexRecord(rl codexRateLimits, account, sessionID string, now time.Time) (record, []string, string) {
 	r := record{
 		CapturedAt: now.UTC().Format("2006-01-02T15:04:05Z"),
 		Account:    account,
 		SessionID:  sessionID,
 	}
 	var extras []string
-	for _, slot := range []struct {
+	type slotInfo struct {
 		name string
 		w    *codexWindow
-	}{{"primary", rl.Primary}, {"secondary", rl.Secondary}} {
+	}
+	slots := []slotInfo{{"primary", rl.Primary}, {"secondary", rl.Secondary}}
+	var nonFixed []slotInfo
+	for _, slot := range slots {
 		if slot.w == nil || slot.w.UsedPercent == nil {
 			continue
 		}
 		w := &window{UsedPercentage: slot.w.UsedPercent, ResetsAt: slot.w.ResetsAt}
-		switch slot.w.WindowMinutes {
-		case 300:
-			r.FiveHour = w
-		case 10080:
-			r.SevenDay = w
-		default:
+		if slot.w.WindowMinutes == 300 {
+			if r.FiveHour == nil {
+				r.FiveHour = w
+			} else {
+				extras = append(extras, fmt.Sprintf("%s (%d-minute window)", slot.name, slot.w.WindowMinutes))
+			}
+			continue
+		}
+		nonFixed = append(nonFixed, slot)
+	}
+	// Place the longest remaining window in the weekly slot regardless of its
+	// stated length, so plans whose window is not literally seven days (e.g. a
+	// 30-day plus plan) still record. Shorter remaining windows are extras.
+	if len(nonFixed) > 0 {
+		best := 0
+		for i := 1; i < len(nonFixed); i++ {
+			if nonFixed[i].w.WindowMinutes > nonFixed[best].w.WindowMinutes {
+				best = i
+			}
+		}
+		bw := nonFixed[best].w
+		r.SevenDay = &window{UsedPercentage: bw.UsedPercent, ResetsAt: bw.ResetsAt}
+		for i, slot := range nonFixed {
+			if i == best {
+				continue
+			}
 			extras = append(extras, fmt.Sprintf("%s (%d-minute window)", slot.name, slot.w.WindowMinutes))
 		}
 	}
-	return r, extras
+	return r, extras, rl.PlanType
 }
 
 // codexSessionsDir is where Codex keeps rollouts: $CODEX_HOME/sessions, the
@@ -424,7 +448,12 @@ func codexHookCommand(self string) string {
 		}
 	}
 	if !plain {
-		self = `"` + strings.ReplaceAll(self, `"`, `\"`) + `"`
+		escaped := self
+		escaped = strings.ReplaceAll(escaped, `\`, `\\`)
+		escaped = strings.ReplaceAll(escaped, `"`, `\"`)
+		escaped = strings.ReplaceAll(escaped, `$`, `\$`)
+		escaped = strings.ReplaceAll(escaped, "`", "\\`")
+		self = `"` + escaped + `"`
 	}
 	return self + " --codex-hook"
 }
@@ -432,7 +461,28 @@ func codexHookCommand(self string) string {
 // isCodexHookCommand recognises a hook this program wrote, wherever the binary
 // was when it wrote it.
 func isCodexHookCommand(cmd string) bool {
-	return strings.HasSuffix(cmd, " --codex-hook") && strings.Contains(cmd, "ai-quota-meter")
+	if !strings.HasSuffix(cmd, " --codex-hook") {
+		return false
+	}
+	rest := strings.TrimSpace(strings.TrimSuffix(cmd, " --codex-hook"))
+	if rest == "" {
+		return false
+	}
+	quoted := false
+	if len(rest) >= 2 && rest[0] == '"' && rest[len(rest)-1] == '"' {
+		rest = rest[1 : len(rest)-1]
+		quoted = true
+	} else if len(rest) >= 2 && rest[0] == '\'' && rest[len(rest)-1] == '\'' {
+		rest = rest[1 : len(rest)-1]
+		quoted = true
+	}
+	if !quoted && strings.ContainsAny(rest, " \t") {
+		return false
+	}
+	if strings.ContainsAny(rest, "$`;&|<>()*?[]~#") {
+		return false
+	}
+	return true
 }
 
 // codexStopGroups returns hooks.Stop, creating the path when it is absent and

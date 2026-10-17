@@ -12,9 +12,9 @@
 
 ## Your Claude quota, on your status line
 
-You can't see how much Claude quota you have left. Claude Code is told, on
-nearly every turn, and doesn't show you unless you stop and ask. This puts it
-on the status line, where you can glance at it:
+Claude Code is told how much quota you have left on nearly every turn, and does
+not show you. This puts the figures on the status line, where you can glance at
+them:
 
 ```
 Opus 5 (1M context)  ai-quota-meter  228k/1M  5h 62% (1h52m left)  7d 41% (4d left)
@@ -23,17 +23,16 @@ Opus 5 (1M context)  ai-quota-meter  228k/1M  5h 62% (1h52m left)  7d 41% (4d le
 ```sh
 go install github.com/sigiletlabs/ai-quota-meter@latest
 ai-quota-meter            # sets itself up and shows what your bar will look like
-ai-quota-meter --doctor   # six checks, if anything looks wrong
+ai-quota-meter --doctor   # eight checks, if anything looks wrong
 ```
 
-Works with: `Claude Code` · `Codex` — Linux, macOS and Windows. Static binary, no network access.
+Works with Claude Code, Codex and OpenCode, on Linux, macOS and Windows. Static
+binary, standard library only. It calls the network only for alerting and for
+the OpenCode figures.
 
-**Those percentages are Anthropic's own.** Claude Code already receives them and
-hands them to whatever you set as your status line. This program reports them
-and calculates nothing. The numbers are as good as the vendor's, because they
-*are* the vendor's.
-
----
+The percentages are Anthropic's own. Claude Code already receives them and
+hands them to whatever you set as your status line, so this program reports
+them and calculates nothing.
 
 ## What's on the bar
 
@@ -72,13 +71,13 @@ If anything looks wrong:
 ai-quota-meter --doctor
 ```
 
-Six checks, each one saying how to fix what it found. Worth running before you
-go hunting yourself, because Claude Code shows nothing at all — no error, no
-stale line — for a status line command it cannot run.
+Eight checks, each one saying how to fix what it found. Worth running before
+you go hunting yourself, because Claude Code shows nothing at all (no error, no
+stale line) for a status line command it cannot run.
 
 Linux, macOS and Windows. No dependencies: standard library only, static
-binary, no daemon, no network access. To build from a clone instead, run
-`./build.sh`, or `./build.sh --all` for every platform at once.
+binary, no daemon. To build from a clone instead, run `./build.sh`, or
+`./build.sh --all` for every platform at once.
 
 Release binaries are built by CI from a tag and carry a
 [build provenance attestation](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations),
@@ -87,17 +86,18 @@ so you can check one came from this repository rather than from someone else:
 ```sh
 gh attestation verify ai-quota-meter-linux-amd64 \
   --repo sigiletlabs/ai-quota-meter \
-  --signer-workflow sigiletlabs/ai-quota-meter/.github/workflows/release.yml
+  --signer-workflow sigiletlabs/ai-quota-meter/.github/workflows/release.yml \
+  --source-ref refs/tags/vX.Y.Z
 ```
 
 It prints nothing and exits 0 when the binary is genuine. A file that has been
 altered exits 1.
 
-`--signer-workflow` is the part that earns the rest. `--repo` on its own only
-shows that some workflow in this repository produced some binary with this
-file's digest; naming `release.yml` is what says the release pipeline built it
-and not a workflow added later. SECURITY.md says what that still leaves
-unproven.
+`--repo` on its own only shows that some workflow in this repository produced
+some binary with this file's digest; naming `release.yml` is what says the
+release pipeline built it and not a workflow added later. The workflow path
+matches any tag, so `--source-ref refs/tags/vX.Y.Z` is what holds the check to
+one release. SECURITY.md says what that still leaves unproven.
 
 They are not code-signed yet, so Windows will want an `Unblock-File` and macOS
 a right-click Open the first time.
@@ -112,8 +112,8 @@ directory:
 Opus 5 (1M context)  ai-quota-meter
 ```
 
-**That is expected, not a fault.** The figures were not sent, and this program
-will not invent them.
+That is expected. The figures were not sent, and this program will not invent
+them.
 
 On a narrow terminal the line wraps onto more rows rather than being cut off,
 so a phone over mosh gets all of it stacked instead of the quota figures
@@ -123,19 +123,19 @@ disappearing off the right.
 
 Both are optional and both are safe to ignore.
 
-**It writes each reading to a file**, so other tools can read your quota state
-without an API call. Keyed by account, so figures from different Claude
-accounts never pool. See [the capture files](docs/capture-files.md).
+It writes each reading to a file, so other tools can read your quota state
+without an API call. Figures are keyed by account, so two Claude accounts never
+pool. See [the capture files](docs/capture-files.md).
 
-**It watches the vendor's own figures** and pushes a notification for the six
-things worth acting on — a counter moving backwards, a window changing length,
-a cap it does not recognise, and so on. At most one push an hour. Off until you
-give it an ntfy topic. See [alerting](docs/alerting.md).
+It also watches the vendor's own figures and pushes a notification for six
+things worth acting on, among them a counter moving backwards, a window
+changing length and a cap it does not recognise. At most one push an hour. Off
+until you give it an ntfy topic. See [alerting](docs/alerting.md).
 
-The one calculated number in this program lives there, not on the bar: an "at
-this rate you run out Tuesday" projection beside a threshold. A bar is glanced
-at continuously and absorbed as fact; a notification is read once, says "at
-this rate", and shows the measured percentage next to it.
+The one calculated number in this program is the projection in one of those
+alerts rather than a figure on the bar. A bar is glanced at continuously and
+absorbed as fact, so "at this rate you run out Tuesday" is shown once, beside
+the measured percentage it came from.
 
 ## If you also use Codex
 
@@ -146,11 +146,11 @@ You get the same items in the same order in both tools: model, directory,
 context, then the two quota windows. Codex draws them in its own style, so the
 bar looks like Codex rather than like the one above.
 
-**This binary does not draw that bar, and never can.** Codex has no hook for
-running a status line command — its setting is a list of widgets built into
-Codex itself. What it does have is a five-hour and a weekly quota item already
-built in, switched off by default. So `--install` switches them on and orders
-them to match:
+This binary does not draw that bar and cannot. Codex has no hook for running a
+status line command; its setting is a list of widgets built into Codex itself.
+What it does have is a five-hour and a weekly quota item already built in,
+switched off by default. So `--install` switches them on and orders them to
+match:
 
 ```toml
 [tui]
@@ -167,15 +167,53 @@ starts: choose "Trust All and Continue". Until you do, the bar works and the
 readings are not recorded.
 
 It edits one line of your `config.toml`, and appends one hook to `hooks.json`,
-and backs each file up first. A status
-line you set yourself is replaced only after saying what it replaced, and
-`--uninstall` puts back anything it did not write. Where it cannot be certain
-it would edit the right thing, it refuses and tells you the line to add by
-hand — a duplicate key would stop Codex starting, which is a far worse outcome
-than a chore.
+and backs each file up first. A status line you set yourself is replaced only
+after saying what it replaced, and `--uninstall` puts back anything it did not
+write. Where it cannot be certain it would edit the right thing, it refuses and
+tells you the line to add by hand, because a duplicate key would stop Codex
+starting, which is worse than a chore.
 
 More in [Codex](docs/codex.md), including where the config lives on each
 platform and why it edits text instead of parsing TOML.
+
+## If you also use OpenCode
+
+An Opencode Go subscription reports a rolling five-hour window, a weekly one
+and a 30-day one. OpenCode draws its sidebar from a plugin rather than from a
+command, so this program prints one line for a plugin to show:
+
+```sh
+ai-quota-meter --opencode-usage
+Go 5h 0% · 7d 70% · 30d 35%
+```
+
+`--opencode-usage` prints the most recent captured reading, so a sidebar can
+run it every few seconds without a credential. A reading older than fifteen
+minutes is treated as absent rather than shown undated. Only the capture timer
+calls the vendor:
+
+```sh
+cd ai-quota-meter && ./scripts/install-opencode-capture.sh
+```
+
+Where the credential comes from changed between OpenCode 1 and OpenCode 2.
+OpenCode 1 exported its console token into every shell it ran; OpenCode 2 keeps
+it in its own database and exposes it only through `opencode auth export`. The
+installer reads it back and records the Go key in
+`~/.config/ai-quota-meter/opencode-env` (0600), which is the file the timer
+reads. [The reference](docs/reference.md) has the detail.
+
+Showing the line is the plugin's job. With the `opencode-statusline` plugin on
+OpenCode 1, one sidebar item does it:
+
+```json
+{ "type": "custom", "command": "ai-quota-meter --opencode-usage", "format": "{output}" }
+```
+
+OpenCode 2 dropped the slot that plugin writes to, so on V2 it renders nothing.
+`integrations/opencode-sidebar/` holds a small module that reads the same
+`sidebar.json` into V2's slot. The V1 setup is left alone, so one config file
+serves either version.
 
 ## More
 

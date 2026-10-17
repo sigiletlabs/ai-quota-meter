@@ -16,6 +16,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -39,6 +40,7 @@ func doctor(out io.Writer, now time.Time) int {
 		checkRender(),
 		checkCodex(),
 		checkCodexHook(),
+		checkWatchdog(),
 	}
 
 	bad := 0
@@ -117,11 +119,26 @@ func checkStatusLinePath() checkResult {
 	// setting by hand gets told their working setup is faulty.
 	resolvedCmd := expandTilde(cmd)
 
-	if _, err := os.Stat(resolvedCmd); err != nil {
+	info, err := os.Stat(resolvedCmd)
+	if os.IsNotExist(err) {
 		return checkResult{
 			name: name,
 			note: cmd + " does not exist",
 			fix:  "the binary moved or was deleted; run --install from where it lives now",
+		}
+	}
+	if err != nil {
+		return checkResult{
+			name: name,
+			note: "cannot stat " + resolvedCmd + ": " + err.Error(),
+			fix:  "check the permissions on the path and its parents; then run --install",
+		}
+	}
+	if info.Mode().Perm()&0o111 == 0 {
+		return checkResult{
+			name: name,
+			note: cmd + " exists but is not executable",
+			fix:  "chmod +x " + resolvedCmd + ", or run --install to repoint at a runnable binary",
 		}
 	}
 
@@ -194,6 +211,18 @@ func checkCapture(now time.Time) checkResult {
 	path := snapshotPath(env.StateDir, uuid)
 	info, err := os.Stat(path)
 	if err != nil {
+		// Fresh install: no reading yet is expected. An account that was
+		// installed days ago and has never captured anything is not.
+		settingsPath, serr := settingsPath()
+		settingsInfo, serr2 := os.Stat(settingsPath)
+		_ = serr
+		if serr == nil && serr2 == nil && time.Since(settingsInfo.ModTime()) > 48*time.Hour {
+			return checkResult{
+				name: name,
+				note: "no reading ever captured at " + env.StateDir,
+				fix:  "run --install and use Claude Code once; a capture has never landed",
+			}
+		}
 		return checkResult{
 			ok:   true,
 			name: name,
@@ -237,3 +266,59 @@ func compactAge(d time.Duration) string {
 		return fmt.Sprintf("%dd", int(d.Hours()/24))
 	}
 }
+
+// checkWatchdog reports whether the watchdog timer is installed and pointed at
+// a binary that exists. Absence is not a failure on a machine that never
+// opted in, but a broken entry is.
+func checkWatchdog() checkResult {
+	const name = "watchdog timer"
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return checkResult{name: name, note: err.Error()}
+	}
+	servicePath := filepath.Join(home, ".config", "systemd", "user", "ai-quota-meter-watchdog.service")
+	timerPath := filepath.Join(home, ".config", "systemd", "user", "ai-quota-meter-watchdog.timer")
+	launchdPath := filepath.Join(home, "Library", "LaunchAgents", "com.sigiletlabs.ai-quota-meter-watchdog.plist")
+
+	if _, err := os.Stat(servicePath); err != nil {
+		if _, err2 := os.Stat(launchdPath); err2 != nil {
+			return checkResult{ok: true, name: name, note: "not installed (optional)"}
+		}
+		if _, err := os.Stat(launchdPath); err == nil {
+			return checkResult{ok: true, name: name, note: launchdPath}
+		}
+	}
+	// Verify the service file points at an existing executable.
+	srv, err := os.ReadFile(servicePath)
+	if err != nil {
+		return checkResult{name: name, note: servicePath + " unreadable", fix: "run: ai-quota-meter --install-watchdog"}
+	}
+	var execPath string
+	for _, line := range strings.Split(string(srv), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "ExecStart=") {
+			execPath = strings.Trim(strings.TrimPrefix(line, "ExecStart="), `"`)
+			// expand %h the way systemd does
+			execPath = strings.ReplaceAll(execPath, "%h", home)
+			// drop trailing args
+			fields := strings.Fields(execPath)
+			if len(fields) > 0 {
+				execPath = fields[0]
+			}
+			break
+		}
+	}
+	if _, err := os.Stat(timerPath); err != nil {
+		return checkResult{name: name, note: "service present but timer missing", fix: "run: ai-quota-meter --install-watchdog"}
+	}
+	if execPath == "" {
+		return checkResult{name: name, note: "service has no ExecStart=", fix: "run: ai-quota-meter --install-watchdog"}
+	}
+	if info, err := os.Stat(execPath); err != nil || info.Mode()&0o111 == 0 {
+		return checkResult{name: name, note: execPath + " does not exist or is not executable", fix: "run: ai-quota-meter --install from where it lives now"}
+	}
+	return checkResult{ok: true, name: name, note: servicePath}
+}
+
+// alias used by some callers
+func checkWatchdogTimer() checkResult { return checkWatchdog() }

@@ -1,0 +1,15 @@
+[Unit]
+Description=Record the Opencode Go subscription quota windows for the status line
+
+[Service]
+Type=oneshot
+# The Go credential has to be re-sourced for the unit, which does not inherit
+# the interactive shell. OpenCode 1 exported its console token into every shell
+# it ran; OpenCode 2 keeps the credential in its own store and the installer
+# reads it back with `opencode auth export`. The optional env file is where
+# that credential is recorded, same convention as the ntfy topic file. The
+# leading "-" keeps the unit valid without it: the capture then fails on stderr
+# and into the journal, which is where a capture that cannot work has to be
+# visible — the bar just shows no Go windows.
+EnvironmentFile=-%h/.config/ai-quota-meter/opencode-env
+ExecStart=%h/.local/bin/ai-quota-meter --opencode-capture

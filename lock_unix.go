@@ -6,6 +6,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"syscall"
 )
@@ -13,8 +14,15 @@ import (
 // tryLock takes an exclusive lock on f without waiting, reporting whether it
 // got one. LOCK_NB is the whole point: a contended run must skip, never
 // block, because a blocked status line blanks the bar.
-func tryLock(f *os.File) bool {
-	return syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) == nil
+func tryLock(f *os.File) (bool, error) {
+	err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, syscall.EAGAIN) || errors.Is(err, syscall.EWOULDBLOCK) {
+		return false, err
+	}
+	return false, err
 }
 
 // unlock releases the lock. The error is deliberately dropped: this runs from

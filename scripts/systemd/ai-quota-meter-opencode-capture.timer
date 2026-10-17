@@ -1,0 +1,15 @@
+[Unit]
+Description=Record the Opencode Go subscription quota windows
+
+[Timer]
+# Every ten minutes. The Go subscription burns fast enough that a longer
+# interval would leave the bar showing a figure that has moved, and the
+# staleness threshold in opencode.go is sized around this interval.
+OnCalendar=*:0/10
+# A laptop that was asleep at the scheduled time catches up on wake — the same
+# reason the watchdog timer sets this.
+Persistent=true
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target

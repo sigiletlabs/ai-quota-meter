@@ -318,10 +318,14 @@ run_privacy() {
   local home_pat='(/home/|/Users/)[a-z][a-z0-9_-]*|[A-Za-z]:\\Users\\[A-Za-z][A-Za-z0-9_.-]*'
   local home_ok='(/home/|/Users/|Users\\)(u|you|user|username|example|runner|test|USERNAME|Public|Default)([/\`"'"'"'[:space:]]|$)'
 
-  # class "local" — the literal names from the untracked file. Same patterns,
-  # different exemption rules, because a literal private name is much more
-  # likely to be a real leak than a bare RFC1918 address in a doc.
-  local extra=${AQM_PRIVACY_PATTERNS:-$HOME/.config/ai-quota-meter/privacy-patterns}
+  # class "local" — the literal names from the tracked patterns file. Same
+  # patterns, different exemption rules, because a literal private name is
+  # much more likely to be a real leak than a bare RFC1918 address in a doc.
+  #
+  # The file lives in the repo so CI runs the same gate as a local build.
+  # $HOME/.config/ai-quota-meter/privacy-patterns is no longer the default;
+  # AQM_PRIVACY_PATTERNS=<path> overrides the tracked file.
+  local extra=${AQM_PRIVACY_PATTERNS:-scripts/privacy-patterns}
   local local_pat=()
   local extra_count=0
   if [ -r "$extra" ]; then
@@ -329,9 +333,14 @@ run_privacy() {
     while IFS= read -r line; do
       case $line in ''|'#'*) continue ;; esac
       local_pat+=("$line")
-      extra_count=$((extra_count + 1))
+      extra_count=$(( extra_count + 1 ))
     done < "$extra"
   fi
+
+  # Allowlist for synthetic fixture UUIDs. The test files use
+  # aaaaaaaaa-0000-4000-8000-… and bbbbbbbb-0000-4000-8000-…, which are
+  # not real account UUIDs and must not trip the UUID shape pattern.
+  local uuid_keep='[0-9a-f]{8}-0000-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
 
   local hits=0 hist_hit=0 raw pat
   local wt_exempt=0 hist_exempt=0
@@ -351,7 +360,7 @@ run_privacy() {
 
   for pat in ${local_pat[@]+"${local_pat[@]}"}; do
     raw=$(grep -rInE "$pat" . --exclude-dir=.git 2>/dev/null || true)
-    scan_filter local worktree '' "$raw"
+    scan_filter local worktree "$uuid_keep" "$raw"
     if [ -n "$SCAN_KEPT" ]; then echo "$SCAN_KEPT"; hits=1; fi
     wt_exempt=$(( wt_exempt + SCAN_EXEMPT ))
   done
@@ -390,7 +399,7 @@ run_privacy() {
       for pat in ${local_pat[@]+"${local_pat[@]}"}; do
         # shellcheck disable=SC2086
         raw=$(git grep -InE "$pat" $revs -- 2>/dev/null || true)
-        scan_filter local history '' "$raw"
+        scan_filter local history "$uuid_keep" "$raw"
         if [ -n "$SCAN_KEPT" ]; then echo "$SCAN_KEPT" | head -20; hits=1; hist_hit=1; fi
         hist_exempt=$(( hist_exempt + SCAN_EXEMPT ))
       done

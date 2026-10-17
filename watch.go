@@ -41,9 +41,12 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -93,6 +96,7 @@ type watchState struct {
 	PrevSevenDayResetsAt int64            `json:"prevSevenDayResetsAt,omitempty"`
 	PrevPeakPercentage   float64          `json:"prevPeakPercentage,omitempty"`
 	SeenExtraFields      []string         `json:"seenExtraFields,omitempty"`
+	Plan                 string           `json:"plan,omitempty"`
 	Delivered            map[string]int64 `json:"delivered,omitempty"`
 	LastPushAttemptAt    int64            `json:"lastPushAttemptAt,omitempty"`
 	LastReadingAt        int64            `json:"lastReadingAt,omitempty"`
@@ -136,7 +140,7 @@ func watchLockPath(stateDir, account string) string {
 // Non-blocking lock, like appendHistory: a contended run skips rather than
 // waits, because a blocked status line is worse than a delayed alert about
 // something that has already happened. The next turn picks it up.
-func checkWatch(stateDir, account string, r record, extras []string, now time.Time) (pending []alert, found *anomaly) {
+func checkWatch(stateDir, account string, r record, extras []string, now time.Time, plan ...string) (pending []alert, found *anomaly) {
 	if account == "" {
 		return nil, nil
 	}
@@ -151,15 +155,23 @@ func checkWatch(stateDir, account string, r record, extras []string, now time.Ti
 		return nil, nil
 	}
 	defer lf.Close()
-	if !tryLock(lf) {
+	if ok, _ := tryLock(lf); !ok {
 		return nil, nil
 	}
 	defer unlock(lf)
 
 	path := watchStatePath(stateDir, account)
-	st := readWatchState(path)
+	st, err := readWatchState(path)
+	if err != nil {
+		debugf("watch: reading state: %v", err)
+		return nil, nil
+	}
 
-	pending, found = foldReading(&st, r, extras, now)
+	p := ""
+	if len(plan) > 0 {
+		p = plan[0]
+	}
+	pending, found = foldReading(&st, r, extras, now, p)
 	if found != nil {
 		found.Account = account
 	}
@@ -175,14 +187,29 @@ func checkWatch(stateDir, account string, r record, extras []string, now time.Ti
 // It never marks an alert delivered. Delivery is recorded by markDelivered,
 // after a send actually succeeds, which is what lets an alert suppressed by the
 // rate cap be re-derived and sent on a later turn instead of being lost.
-func foldReading(st *watchState, r record, extras []string, now time.Time) (pending []alert, found *anomaly) {
+func foldReading(st *watchState, r record, extras []string, now time.Time, plan ...string) (pending []alert, found *anomaly) {
 	st.LastReadingAt = now.Unix()
+
+	p := ""
+	if len(plan) > 0 {
+		p = plan[0]
+	}
+
+	// Plan recognition: carried field, survives rollover.
+	if p != "" {
+		if st.Plan != "" && st.Plan != p {
+			pending = append(pending, planAlert(st.Plan, p))
+		}
+		st.Plan = p
+	}
 
 	// Unknown vendor fields are not window-scoped: a new cap appearing is a
 	// fact about the program, not about this week.
 	if a, ok := st.noteExtraFields(extras); ok {
 		pending = append(pending, a)
 	}
+
+	rolling := strings.HasPrefix(r.Account, "codex-")
 
 	if r.SevenDay == nil || r.SevenDay.UsedPercentage == nil {
 		return st.undelivered(pending), nil
@@ -191,7 +218,7 @@ func foldReading(st *watchState, r record, extras []string, now time.Time) (pend
 	boundary := r.SevenDay.ResetsAt
 
 	if st.SevenDayResetsAt != boundary {
-		pending = append(pending, st.rollover(boundary, pct, r, now)...)
+		pending = append(pending, st.rollover(boundary, pct, r, now, rolling)...)
 		return st.undelivered(pending), nil
 	}
 
@@ -214,10 +241,15 @@ func foldReading(st *watchState, r record, extras []string, now time.Time) (pend
 	if pct >= st.PeakPercentage {
 		st.PeakPercentage = pct
 		st.PeakAt = now.UTC().Format(time.RFC3339)
-		// Recovery above the peak retires any pending candidate: whatever the
-		// low reading was, it did not last.
 		st.Candidate = nil
-		pending = append(pending, st.thresholds(pct, boundary, now)...)
+		pending = append(pending, st.thresholds(pct, boundary, now, rolling)...)
+		return st.undelivered(pending), nil
+	}
+
+	// Rolling (Codex) windows make backwards moves legitimate — expiry and
+	// vendor resets both do it — so anomaly detection is disabled for them
+	// on purpose. Issue #70.
+	if rolling {
 		return st.undelivered(pending), nil
 	}
 
@@ -233,7 +265,7 @@ func foldReading(st *watchState, r record, extras []string, now time.Time) (pend
 		}
 		return st.undelivered(pending), nil
 	}
-	if now.Unix()-st.Candidate.Unix < int64(confirmAfter.Seconds()) {
+	if elapsed := now.Unix() - st.Candidate.Unix; elapsed >= 0 && elapsed < int64(confirmAfter.Seconds()) {
 		return st.undelivered(pending), nil
 	}
 
@@ -258,7 +290,7 @@ func foldReading(st *watchState, r record, extras []string, now time.Time) (pend
 // rollover closes the current window and opens the next one. It returns the
 // alerts the closing window earned: the weekly summary, and a warning if the
 // window was not seven days long.
-func (st *watchState) rollover(boundary int64, pct float64, r record, now time.Time) []alert {
+func (st *watchState) rollover(boundary int64, pct float64, r record, now time.Time, rolling bool) []alert {
 	var out []alert
 
 	if st.SevenDayResetsAt != 0 {
@@ -266,16 +298,12 @@ func (st *watchState) rollover(boundary int64, pct float64, r record, now time.T
 		st.PrevPeakPercentage = st.PeakPercentage
 	}
 
-	// Both alerts are rebuilt from the carried Prev* fields rather than from
-	// locals, so a send suppressed by the rate cap can be reproduced on a later
-	// turn. That is why PrevPeakPercentage is stored at all.
-	if st.PrevSevenDayResetsAt != 0 {
+	// Rolling (Codex) windows have no closed window to summarise and no fixed
+	// scheme to detect: a sliding boundary is the normal shape, and vendor
+	// resets are legitimate. Suppress both alerts for those accounts. Issue #70.
+	if !rolling && st.PrevSevenDayResetsAt != 0 {
 		out = append(out, summaryAlert(st.PrevSevenDayResetsAt, st.PrevPeakPercentage))
 
-		// A window that did not run seven days means the vendor changed the
-		// scheme. Arithmetic on two numbers the vendor sent, so there is no
-		// false-positive mode worth guarding: an hour of slack absorbs a
-		// boundary that shifts for daylight saving.
 		gap := boundary - st.PrevSevenDayResetsAt
 		if d := gap - 7*86400; d > 3600 || d < -3600 {
 			out = append(out, schemeAlert(st.PrevSevenDayResetsAt, boundary))
@@ -316,10 +344,26 @@ func (st *watchState) resetWindow(boundary int64, pct float64, r record, now tim
 // gone out is the delivery log's answer, and only a real send writes to that —
 // otherwise an alert the rate cap held back would be marked done without ever
 // having been sent, which is precisely the bug this shape replaced.
-func (st *watchState) thresholds(pct float64, boundary int64, now time.Time) []alert {
+func (st *watchState) thresholds(pct float64, boundary int64, now time.Time, rolling bool) []alert {
+	if rolling {
+		// Re-arm a level once usage has dropped back below it, so a reset
+		// (or a climb) can produce a fresh alert later. Issue #70.
+		for _, t := range quotaThresholds {
+			if pct < float64(t) {
+				delete(st.Delivered, fmt.Sprintf("threshold:%d", t))
+			}
+		}
+	}
+
 	highest := -1
 	for _, t := range quotaThresholds {
-		if pct < float64(t) || st.thresholdSkipped(t) || st.isDelivered(thresholdKey(boundary, t)) {
+		var key string
+		if rolling {
+			key = fmt.Sprintf("threshold:%d", t)
+		} else {
+			key = thresholdKey(boundary, t)
+		}
+		if pct < float64(t) || st.thresholdSkipped(t) || st.isDelivered(key) {
 			continue
 		}
 		highest = t
@@ -334,8 +378,17 @@ func (st *watchState) thresholds(pct float64, boundary int64, now time.Time) []a
 	}
 	sort.Ints(st.ThresholdsSkipped)
 
-	p := project(st.WindowStartAt, st.WindowStartPct, pct, boundary, now)
-	return []alert{thresholdAlert(highest, pct, boundary, p, now)}
+	var p projection
+	if !rolling {
+		p = project(st.WindowStartAt, st.WindowStartPct, pct, boundary, now)
+	}
+	key := thresholdKey(boundary, highest)
+	if rolling {
+		key = fmt.Sprintf("threshold:%d", highest)
+	}
+	a := thresholdAlert(highest, pct, boundary, p, now)
+	a.Key = key
+	return []alert{a}
 }
 
 func (st *watchState) thresholdSkipped(t int) bool {
@@ -390,8 +443,25 @@ func (st *watchState) undelivered(in []alert) []alert {
 
 // markDelivered records a successful send and prunes the log.
 func markDelivered(stateDir, account string, a alert, now time.Time) {
+	lf, err := os.OpenFile(watchLockPath(stateDir, account), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		debugf("watch: marking delivered: %v", err)
+		return
+	}
+	defer lf.Close()
+	if ok, _ := tryLock(lf); !ok {
+		// Contended: a peer is writing the same state file. Delivery
+		// recording is re-derivable on the next turn, so skipping is safe.
+		return
+	}
+	defer unlock(lf)
+
 	path := watchStatePath(stateDir, account)
-	st := readWatchState(path)
+	st, err := readWatchState(path)
+	if err != nil {
+		debugf("watch: marking delivered: %v", err)
+		return
+	}
 	if st.Delivered == nil {
 		st.Delivered = map[string]int64{}
 	}
@@ -406,38 +476,87 @@ func markDelivered(stateDir, account string, a alert, now time.Time) {
 	}
 }
 
+// tryReservePush atomically tests the hourly cap and, if it allows, records
+// the attempt. Returns true when the caller may send. Re-reading under the
+// lock closes the TOCTOU gap that let two senders both spend the hour.
+func tryReservePush(stateDir, account string, now time.Time) bool {
+	lf, err := os.OpenFile(watchLockPath(stateDir, account), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		debugf("watch: reserving push: %v", err)
+		return false
+	}
+	defer lf.Close()
+	if ok, _ := tryLock(lf); !ok {
+		return false
+	}
+	defer unlock(lf)
+
+	path := watchStatePath(stateDir, account)
+	st, err := readWatchState(path)
+	if err != nil {
+		debugf("watch: reserving push: %v", err)
+		return false
+	}
+	if st.LastPushAttemptAt != 0 && now.Unix()-st.LastPushAttemptAt < int64(minPushInterval.Seconds()) {
+		return false
+	}
+	st.LastPushAttemptAt = now.Unix()
+	if err := writeWatchState(path, st); err != nil {
+		debugf("watch: reserving push: %v", err)
+		return false
+	}
+	return true
+}
+
 // markPushAttempt records that a send was tried, successful or not.
 //
 // The rate cap is keyed on the ATTEMPT, not the success. Keying it on success
 // would mean an unreachable ntfy is retried on every turn — every few seconds —
 // which is the one way this code could become a nuisance to a third party.
 func markPushAttempt(stateDir, account string, now time.Time) {
+	lf, err := os.OpenFile(watchLockPath(stateDir, account), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		debugf("watch: marking attempt: %v", err)
+		return
+	}
+	defer lf.Close()
+	if ok, _ := tryLock(lf); !ok {
+		return
+	}
+	defer unlock(lf)
+
 	path := watchStatePath(stateDir, account)
-	st := readWatchState(path)
+	st, err := readWatchState(path)
+	if err != nil {
+		debugf("watch: marking attempt: %v", err)
+		return
+	}
 	st.LastPushAttemptAt = now.Unix()
 	if err := writeWatchState(path, st); err != nil {
 		debugf("watch: marking attempt: %v", err)
 	}
 }
 
-// readWatchState returns the zero state for every failure. A missing,
-// truncated, hand-edited or wrong-typed file must degrade to "start watching
-// again", never to a crash or a silent stop.
-//
-// Returning the partially decoded struct would be worse than it looks: a syntax
-// error populates nothing, but a TYPE error populates every field read before
-// the bad one, so a file carrying a delivery log would suppress alerts that
-// were never sent. Only the zero value is safe.
-func readWatchState(path string) watchState {
-	var st watchState
+// readWatchState returns the state and an error describing why the file could
+// not be read, when that failure is a transient one. A missing file yields
+// the zero state with no error, because there is no state yet to protect; a
+// corrupt file (unmarshal error) also yields the zero state with no error,
+// matching the prior behaviour for that case. An I/O or permission error
+// returns the error so the caller can skip writing and preserve the existing
+// file.
+func readWatchState(path string) (watchState, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return watchState{}
+		if errors.Is(err, os.ErrNotExist) {
+			return watchState{}, nil
+		}
+		return watchState{}, err
 	}
+	var st watchState
 	if err := json.Unmarshal(data, &st); err != nil {
-		return watchState{}
+		return watchState{}, nil
 	}
-	return st
+	return st, nil
 }
 
 // writeWatchState writes atomically, for the same reason writeSnapshot does:

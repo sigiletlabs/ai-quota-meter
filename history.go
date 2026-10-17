@@ -56,7 +56,7 @@ func appendHistory(stateDir, account string, r record) (appended bool, err error
 	// contended run skips rather than waits, because a duplicate line is
 	// harmless but a blocked status line violates the never-blank-the-bar
 	// rule in STATE.md. Exclusive because we're about to read-then-write.
-	if !tryLock(lf) {
+	if ok, _ := tryLock(lf); !ok {
 		return false, nil
 	}
 	defer unlock(lf)

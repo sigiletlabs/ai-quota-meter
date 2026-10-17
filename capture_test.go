@@ -160,15 +160,21 @@ func TestWriteSnapshotLeavesNoTempFileBehind(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 1 {
+	if len(entries) != 2 {
 		var names []string
 		for _, e := range entries {
 			names = append(names, e.Name())
 		}
-		t.Fatalf("directory has %d entries after write, want 1: %v", len(entries), names)
+		t.Fatalf("directory has %d entries after write, want 2 (snapshot + lock): %v", len(entries), names)
 	}
-	if entries[0].Name() != "rate-limits-acct-1.json" {
-		t.Errorf("only file present is %q, want rate-limits-acct-1.json", entries[0].Name())
+	foundSnapshot := false
+	for _, e := range entries {
+		if e.Name() == "rate-limits-acct-1.json" {
+			foundSnapshot = true
+		}
+	}
+	if !foundSnapshot {
+		t.Errorf("snapshot file missing after write")
 	}
 }
 
@@ -479,7 +485,7 @@ func TestWriteSnapshotRefusalLeavesNoTempFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 1 {
-		t.Errorf("state dir holds %d entries, want only the snapshot: %v", len(entries), entries)
+	if len(entries) != 2 {
+		t.Errorf("state dir holds %d entries, want snapshot + lock: %v", len(entries), entries)
 	}
 }

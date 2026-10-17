@@ -253,7 +253,7 @@ func TestAppendHistory_NonBlockingLockSkipsOnContention(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer holder.Close()
-	if !tryLock(holder) {
+	if ok, _ := tryLock(holder); !ok {
 		t.Fatal("could not take the contending lock")
 	}
 	defer unlock(holder)

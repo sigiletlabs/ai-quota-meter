@@ -111,7 +111,18 @@ type rateLimits struct {
 // knownRateLimitFields is what this program understands. Adding a field here
 // without teaching the rest of the program to read it will silence the alert
 // that would otherwise report it.
-var knownRateLimitFields = map[string]bool{"five_hour": true, "seven_day": true}
+var knownRateLimitFields = map[string]bool{
+	"five_hour": true,
+	"seven_day": true,
+	// spend_limit is the third window Claude Code sends for developers
+	// behind a Claude apps gateway with spend limits (used_percentage +
+	// resets_at, or used_usd + limit_usd + period). It is a different
+	// product from the Pro/Max quota this bar renders, and the capture
+	// shape is the cross-repo contract with api-dashboard, so it is
+	// recognised here purely so it is never reported as an unknown field.
+	// See issue #72.
+	"spend_limit": true,
+}
 
 // UnmarshalJSON decodes the two known windows and records the names of the
 // rest. It deliberately does not fail on an unknown key: rejecting a payload
@@ -139,6 +150,11 @@ func (rl *rateLimits) UnmarshalJSON(data []byte) error {
 					rl.SevenDay = &w
 				}
 			}
+		case name == "spend_limit":
+			// Recognised but not rendered: the bar is a Pro/Max quota
+			// display and gateway spend is a different product. The value is
+			// deliberately not retained — see rateLimits.Extra rationale —
+			// so no unknown vendor data reaches a file or notification.
 		case !knownRateLimitFields[name]:
 			rl.Extra = append(rl.Extra, name)
 		}

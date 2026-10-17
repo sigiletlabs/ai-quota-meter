@@ -22,8 +22,8 @@ command -v launchctl >/dev/null || { echo "no launchctl on this host" >&2; exit 
 mkdir -p "$AGENTS"
 # The plist needs an absolute path and launchd does no expansion of its own,
 # so the placeholder is substituted here rather than shipped expanded.
-sed "s#__BINARY__#$BIN#" "$SRC/$LABEL.plist" > "$AGENTS/$LABEL.plist"
-chmod 0644 "$AGENTS/$LABEL.plist"
+esc=$(printf '%s' "$BIN" | sed -e 's/[&\\]/\\&/g' -e 's/</\\</g')
+tmp=$(mktemp "$AGENTS/.$LABEL.XXXXXX") && sed "s|__BINARY__|$esc|" "$SRC/$LABEL.plist" > "$tmp" && chmod 0644 "$tmp" && mv "$tmp" "$AGENTS/$LABEL.plist"
 
 # bootout first so a re-run replaces rather than fails. It errors when nothing
 # is loaded, which is fine and expected on a first install.

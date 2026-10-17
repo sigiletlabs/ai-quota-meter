@@ -138,7 +138,7 @@ func TestCodexRecordPlacesWindowsByLength(t *testing.T) {
 		Primary:   &codexWindow{UsedPercent: pct(40), WindowMinutes: 300, ResetsAt: 100},
 		Secondary: &codexWindow{UsedPercent: pct(7), WindowMinutes: 10080, ResetsAt: 200},
 	}
-	r, extras := codexRecord(rl, "codex-a", "s", time.Unix(0, 0))
+	r, extras, _ := codexRecord(rl, "codex-a", "s", time.Unix(0, 0))
 	if r.FiveHour == nil || *r.FiveHour.UsedPercentage != 40 || r.FiveHour.ResetsAt != 100 {
 		t.Errorf("five-hour window: %+v", r.FiveHour)
 	}
@@ -149,18 +149,21 @@ func TestCodexRecordPlacesWindowsByLength(t *testing.T) {
 		t.Errorf("unexpected extras %v", extras)
 	}
 
-	// A monthly window is not forced into the weekly slot, and a window with
-	// no percentage is not written as zero.
+	// The longest remaining window fills the weekly slot whatever its length;
+	// a window with no percentage is not written as zero.
 	rl = codexRateLimits{
 		Primary:   &codexWindow{UsedPercent: pct(3), WindowMinutes: 43200, ResetsAt: 300},
 		Secondary: &codexWindow{WindowMinutes: 10080, ResetsAt: 400},
 	}
-	r, extras = codexRecord(rl, "codex-a", "s", time.Unix(0, 0))
-	if r.FiveHour != nil || r.SevenDay != nil {
-		t.Errorf("windows placed that should not be: %+v %+v", r.FiveHour, r.SevenDay)
+	r, extras, _ = codexRecord(rl, "codex-a", "s", time.Unix(0, 0))
+	if r.FiveHour != nil {
+		t.Errorf("five-hour window invented: %+v", r.FiveHour)
 	}
-	if len(extras) != 1 || !strings.Contains(extras[0], "43200") {
-		t.Errorf("extras = %v, want the 43200-minute window named", extras)
+	if r.SevenDay == nil || *r.SevenDay.UsedPercentage != 3 || r.SevenDay.ResetsAt != 300 {
+		t.Errorf("weekly window: %+v", r.SevenDay)
+	}
+	if len(extras) != 0 {
+		t.Errorf("unexpected extras %v", extras)
 	}
 }
 

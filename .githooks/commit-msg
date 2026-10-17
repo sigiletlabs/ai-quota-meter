@@ -19,8 +19,7 @@
 # `git config --global init.templateDir <dir>` carrying the same setting is the
 # once-per-machine one.
 #
-# CI re-runs the same script on the pushed range, so a clone that skips this
-# still cannot land a credited commit on a branch - it just finds out later,
-# when the fix costs a rebase instead of a retype.
+# This hook is the only guard. CI does not re-run it, so a clone that skips
+# this (see above) can land a credited commit on a branch.
 set -euo pipefail
 exec "$(git rev-parse --show-toplevel)/tools/assert-no-ai-credit.sh" --message-file "$1"

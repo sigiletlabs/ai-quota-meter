@@ -17,8 +17,10 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // captureEnv is the environment the capture reads, resolved once so the rest
@@ -203,18 +205,35 @@ func writeSnapshot(stateDir, account string, r record) error {
 		return errors.New("capture: refusing to write an unattributed record")
 	}
 
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		return err
+	}
+
+	// Serialise the read-through-rename against other capture writers using
+	// the same lock history uses (issue #39). Non-blocking: a contended run
+	// skips rather than waits.
+	lf, err := os.OpenFile(lockPath(stateDir, account), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return err
+	}
+	defer lf.Close()
+	if ok, _ := tryLock(lf); !ok {
+		return nil
+	}
+	defer unlock(lf)
+
 	// Only a boundary this code has read and understood on both sides can
 	// block a write. A record with no five-hour window (one whose percentage
 	// was unusable, so newRecord dropped it) carries no boundary to compare
 	// and is written as before.
-	if r.FiveHour != nil {
+	// Codex windows roll and re-anchor, so their five-hour (and other short)
+	// boundaries legitimately move backwards; issue #71. The Claude path keeps
+	// the issue #10 guard unchanged. codexFreshFor (codexhook.go) is the
+	// staleness guard that applies to Codex readings instead.
+	if r.FiveHour != nil && !strings.HasPrefix(account, "codex-") {
 		if prev := existingFiveHourBoundary(snapshotPath(stateDir, account)); prev > r.FiveHour.ResetsAt {
 			return errStaleBoundary
 		}
-	}
-
-	if err := os.MkdirAll(stateDir, 0o700); err != nil {
-		return err
 	}
 
 	data, err := json.Marshal(r)
@@ -243,4 +262,37 @@ func writeSnapshot(stateDir, account string, r record) error {
 		return err
 	}
 	return nil
+}
+
+// claudeTier reads the plan/tier fields from oauthAccount alongside the UUID.
+// Returns "" when the file or fields are unusable; that reading must not alert.
+func claudeTier(claudeConfigPath string) string {
+	if claudeConfigPath == "" {
+		return ""
+	}
+	f, err := os.Open(claudeConfigPath)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+
+	var cfg struct {
+		OAuthAccount struct {
+			BillingType               string `json:"billingType"`
+			SeatTier                  string `json:"seatTier"`
+			UserRateLimitTier         string `json:"userRateLimitTier"`
+			OrganizationRateLimitTier string `json:"organizationRateLimitTier"`
+			HasExtraUsageEnabled      bool   `json:"hasExtraUsageEnabled"`
+			SubscriptionCreatedAt     string `json:"subscriptionCreatedAt"`
+		} `json:"oauthAccount"`
+	}
+	if err := json.NewDecoder(f).Decode(&cfg); err != nil {
+		return ""
+	}
+	o := cfg.OAuthAccount
+	if o.BillingType == "" && o.SeatTier == "" && o.UserRateLimitTier == "" &&
+		o.OrganizationRateLimitTier == "" && o.SubscriptionCreatedAt == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s|%s|%s|%s|%v|%s", o.BillingType, o.SeatTier, o.UserRateLimitTier, o.OrganizationRateLimitTier, o.HasExtraUsageEnabled, o.SubscriptionCreatedAt)
 }

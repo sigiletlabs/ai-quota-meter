@@ -40,6 +40,8 @@ hardware.
 | `--self-test` | Send a test notification, to prove the ntfy path works |
 | `--watchdog` | Report if no reading has been captured recently. For a timer, not for you |
 | `--codex-hook` | Record Codex's quota after a turn. Codex runs it from `hooks.json`; `--install` adds it |
+| `--opencode-usage` | Print the Opencode Go subscription's quota windows as one line, for OpenCode's sidebar. Reads the timer's capture and never calls the network itself |
+| `--opencode-capture` | Fetch the Opencode Go windows and record them for `--opencode-usage`. For a timer, not for you; it is the only path that calls the network |
 | `--version`, `-v` | Print the version |
 | `--help`, `-h` | List the commands |
 
@@ -55,6 +57,31 @@ passes none today, and rejecting one a future version adds would blank the bar.
 | `COLUMNS` | set by Claude Code | Terminal width, used to wrap onto more rows |
 | `AQM_DEBUG` | unset | Any value sends diagnostics to stderr. Never to stdout — Claude Code renders stdout as the bar |
 | `AQM_NTFY_CONF` | `~/.config/ai-quota-meter/ntfy` | Where the alerting topic is read from |
+| `OPENCODE_CONSOLE_TOKEN` | unset | Opencode's console token, which OpenCode 1 exports into the shells it runs. Preferred when present |
+| `OPENCODE_API_KEY` | unset | An Opencode Go API key, an explicit alternative to the console token |
+
+## Opencode credentials
+
+The Go subscription's usage endpoint needs a bearer token, and where that token
+lives is the one thing that changed between OpenCode 1 and OpenCode 2:
+
+- **OpenCode 1** exported its console token into the environment of every shell
+  it ran, so both `OPENCODE_CONSOLE_TOKEN` and (via
+  `scripts/install-opencode-capture.sh`) the timer's env file saw it.
+- **OpenCode 2** keeps the credential in its own store
+  (`~/.local/share/opencode/opencode.db`) and does not put it in the shell
+  environment. The installer reads it back with `opencode auth export
+  opencode-go` and records the Go key as `OPENCODE_API_KEY` in
+  `~/.config/ai-quota-meter/opencode-env` (0600) — the same file the timer
+  already reads.
+
+Reading the database directly is deliberately not done: the binary is
+standard-library only, and a SQLite driver is a runtime dependency it will not
+take. The installer, which already assumes the host's tooling, is where the two
+worlds are bridged.
+
+Either way the token is only needed by `--opencode-capture`. `--opencode-usage`
+reads the file the timer writes and makes no call of its own.
 
 ## Rendering
 

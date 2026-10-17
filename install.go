@@ -24,6 +24,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -188,9 +189,10 @@ func uninstall(out io.Writer) int {
 	return 0
 }
 
-// sameFile compares two paths by identity where it can, falling back to the
-// strings. A path that no longer exists is compared textually rather than
-// treated as different, or uninstalling after moving the binary would refuse.
+// sameFile compares two paths by identity where it can, falling back to a
+// textual comparison of their base names once either path no longer exists.
+// Without that fallback, uninstalling after moving or renaming the binary
+// would refuse, because the settings file still points at a path that is gone.
 func sameFile(a, b string) bool {
 	if a == b {
 		return true
@@ -198,7 +200,7 @@ func sameFile(a, b string) bool {
 	ai, err1 := os.Stat(a)
 	bi, err2 := os.Stat(b)
 	if err1 != nil || err2 != nil {
-		return false
+		return filepath.Base(a) == filepath.Base(b)
 	}
 	return os.SameFile(ai, bi)
 }
@@ -233,6 +235,15 @@ func readSettings(path string) (map[string]any, error) {
 
 // writeSettings backs the file up, then replaces it atomically.
 func writeSettings(path string, settings map[string]any) error {
+	// A symlinked settings file points at a dotfiles deploy; follow it rather
+	// than replacing the link with a regular file.
+	if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		resolved, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			return fmt.Errorf("resolving %s: %w", path, err)
+		}
+		path = resolved
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("creating %s: %w", filepath.Dir(path), err)
 	}
@@ -249,10 +260,34 @@ func writeSettings(path string, settings map[string]any) error {
 	}
 
 	// Back up whatever is there now. Losing somebody's settings to fix a
-	// status line is not a trade worth making.
+	// status line is not a trade worth making. Skip it when the file already
+	// carries our own status line, so repeated writes do not destroy the
+	// user's original.
 	if existing, err := os.ReadFile(path); err == nil {
-		if err := os.WriteFile(path+".bak", existing, 0o600); err != nil {
-			return fmt.Errorf("writing the backup %s.bak: %w", path, err)
+		skipBackup := false
+		var cur map[string]any
+		if json.Unmarshal(existing, &cur) == nil {
+			if sl, ok := cur["statusLine"].(map[string]any); ok {
+				if cmd, _ := sl["command"].(string); cmd != "" {
+					self, err := os.Executable()
+					if err == nil {
+						if resolved, rerr := filepath.EvalSymlinks(self); rerr == nil {
+							self = resolved
+						}
+						if sameFile(cmd, self) {
+							skipBackup = true
+						}
+					}
+				}
+			}
+		}
+		if !skipBackup {
+			// Do not clobber an existing backup.
+			if _, err := os.Stat(path + ".bak"); err != nil {
+				if err := os.WriteFile(path+".bak", existing, 0o600); err != nil {
+					return fmt.Errorf("writing the backup %s.bak: %w", path, err)
+				}
+			}
 		}
 	}
 
@@ -277,9 +312,12 @@ func writeSettings(path string, settings map[string]any) error {
 }
 
 func marshalIndent(v any) ([]byte, error) {
-	data, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(v); err != nil {
 		return nil, err
 	}
-	return append(data, '\n'), nil
+	return buf.Bytes(), nil
 }
