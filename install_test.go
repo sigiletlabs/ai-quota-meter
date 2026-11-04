@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -249,5 +250,73 @@ func TestEveryFailureNamesAFix(t *testing.T) {
 		if !c.ok && c.fix == "" {
 			t.Errorf("check %q failed without naming a fix", c.name)
 		}
+	}
+}
+
+// claimedBackups returns the backups of the settings file at path that the
+// output says were saved, and fails the test for any that does not exist.
+// Claims about other files (Codex's, in the shared test guard) are ignored.
+func claimedBackups(t *testing.T, out, path string) []string {
+	t.Helper()
+	var claimed []string
+	for _, m := range regexp.MustCompile(`previous copy at (\S+)\)`).FindAllStringSubmatch(out, -1) {
+		if m[1] != path+".bak" {
+			continue
+		}
+		claimed = append(claimed, m[1])
+		if _, err := os.Stat(m[1]); err != nil {
+			t.Errorf("output claims a backup at %s, but there is none: %v\n%s", m[1], err, out)
+		}
+	}
+	return claimed
+}
+
+// On a fresh machine there is nothing to back up, so no backup is written and
+// none may be claimed. Seen in a clean container while recording the demo.
+func TestInstallOnAFreshMachineClaimsNoBackup(t *testing.T) {
+	path := settingsFixture(t, "")
+	var out strings.Builder
+	if rc := install(&out); rc != 0 {
+		t.Fatalf("install returned %d: %s", rc, out.String())
+	}
+	if got := claimedBackups(t, out.String(), path); len(got) != 0 {
+		t.Errorf("claimed backups %v on a fresh install", got)
+	}
+}
+
+// Uninstall skips the backup when the file holds our own status line, so after
+// a fresh install there is still nothing to point at.
+func TestUninstallAfterAFreshInstallClaimsNoBackup(t *testing.T) {
+	path := settingsFixture(t, "")
+	var out strings.Builder
+	if rc := install(&out); rc != 0 {
+		t.Fatalf("install: %s", out.String())
+	}
+	out.Reset()
+	if rc := uninstall(&out); rc != 0 {
+		t.Fatalf("uninstall returned %d: %s", rc, out.String())
+	}
+	if got := claimedBackups(t, out.String(), path); len(got) != 0 {
+		t.Errorf("claimed backups %v after a fresh install and uninstall", got)
+	}
+}
+
+// When there was a file, the message must still say where its copy went.
+func TestInstallOverAnExistingFileNamesTheBackup(t *testing.T) {
+	path := settingsFixture(t, `{"theme": "dark"}`)
+	var out strings.Builder
+	if rc := install(&out); rc != 0 {
+		t.Fatalf("install: %s", out.String())
+	}
+	got := claimedBackups(t, out.String(), path)
+	if len(got) != 1 || got[0] != path+".bak" {
+		t.Errorf("claimed backups %v, want [%s.bak]", got, path)
+	}
+	out.Reset()
+	if rc := uninstall(&out); rc != 0 {
+		t.Fatalf("uninstall: %s", out.String())
+	}
+	if got := claimedBackups(t, out.String(), path); len(got) != 1 {
+		t.Errorf("uninstall claimed backups %v, want the one install wrote", got)
 	}
 }

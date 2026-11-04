@@ -92,13 +92,14 @@ func install(out io.Writer) int {
 		"command": self,
 	}
 
-	if err := writeSettings(path, settings); err != nil {
+	backup, err := writeSettings(path, settings)
+	if err != nil {
 		fmt.Fprintf(out, "%v\n", err)
 		return 1
 	}
 
 	fmt.Fprintf(out, "status line set to %s\n", self)
-	fmt.Fprintf(out, "wrote %s (previous copy at %s.bak)\n", path, path)
+	fmt.Fprintf(out, "wrote %s%s\n", path, previousCopy(backup))
 
 	// Prove it renders, here, rather than leaving the user to find out by
 	// staring at an empty bar and wondering which of five things is wrong.
@@ -181,11 +182,12 @@ func uninstall(out io.Writer) int {
 	}
 
 	delete(settings, "statusLine")
-	if err := writeSettings(path, settings); err != nil {
+	backup, err := writeSettings(path, settings)
+	if err != nil {
 		fmt.Fprintf(out, "%v\n", err)
 		return 1
 	}
-	fmt.Fprintf(out, "removed the status line from %s (previous copy at %s.bak)\n", path, path)
+	fmt.Fprintf(out, "removed the status line from %s%s\n", path, previousCopy(backup))
 	return 0
 }
 
@@ -233,19 +235,32 @@ func readSettings(path string) (map[string]any, error) {
 	return settings, nil
 }
 
-// writeSettings backs the file up, then replaces it atomically.
-func writeSettings(path string, settings map[string]any) error {
+// previousCopy is the " (previous copy at …)" suffix for a message about a
+// write, or nothing when there is no backup to point at. A fresh install has
+// nothing to back up, and naming a file that does not exist sends the reader
+// looking for it.
+func previousCopy(backup string) string {
+	if backup == "" {
+		return ""
+	}
+	return fmt.Sprintf(" (previous copy at %s)", backup)
+}
+
+// writeSettings backs the file up, then replaces it atomically. It returns
+// the backup's path when one exists afterwards, whether written now or kept
+// from an earlier run, and "" when there is none.
+func writeSettings(path string, settings map[string]any) (string, error) {
 	// A symlinked settings file points at a dotfiles deploy; follow it rather
 	// than replacing the link with a regular file.
 	if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 {
 		resolved, err := filepath.EvalSymlinks(path)
 		if err != nil {
-			return fmt.Errorf("resolving %s: %w", path, err)
+			return "", fmt.Errorf("resolving %s: %w", path, err)
 		}
 		path = resolved
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return fmt.Errorf("creating %s: %w", filepath.Dir(path), err)
+		return "", fmt.Errorf("creating %s: %w", filepath.Dir(path), err)
 	}
 
 	// Two spaces and a trailing newline, which is how Claude Code writes it.
@@ -254,7 +269,7 @@ func writeSettings(path string, settings map[string]any) error {
 	{
 		enc, err := marshalIndent(settings)
 		if err != nil {
-			return fmt.Errorf("encoding settings: %w", err)
+			return "", fmt.Errorf("encoding settings: %w", err)
 		}
 		buf = enc
 	}
@@ -285,7 +300,7 @@ func writeSettings(path string, settings map[string]any) error {
 			// Do not clobber an existing backup.
 			if _, err := os.Stat(path + ".bak"); err != nil {
 				if err := os.WriteFile(path+".bak", existing, 0o600); err != nil {
-					return fmt.Errorf("writing the backup %s.bak: %w", path, err)
+					return "", fmt.Errorf("writing the backup %s.bak: %w", path, err)
 				}
 			}
 		}
@@ -293,22 +308,25 @@ func writeSettings(path string, settings map[string]any) error {
 
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".settings-*.tmp")
 	if err != nil {
-		return fmt.Errorf("creating a temporary file next to %s: %w", path, err)
+		return "", fmt.Errorf("creating a temporary file next to %s: %w", path, err)
 	}
 	tmpName := tmp.Name()
 	defer os.Remove(tmpName)
 
 	if _, err := tmp.Write(buf); err != nil {
 		tmp.Close()
-		return fmt.Errorf("writing %s: %w", tmpName, err)
+		return "", fmt.Errorf("writing %s: %w", tmpName, err)
 	}
 	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("closing %s: %w", tmpName, err)
+		return "", fmt.Errorf("closing %s: %w", tmpName, err)
 	}
 	if err := os.Rename(tmpName, path); err != nil {
-		return fmt.Errorf("replacing %s: %w", path, err)
+		return "", fmt.Errorf("replacing %s: %w", path, err)
 	}
-	return nil
+	if _, err := os.Stat(path + ".bak"); err != nil {
+		return "", nil
+	}
+	return path + ".bak", nil
 }
 
 func marshalIndent(v any) ([]byte, error) {

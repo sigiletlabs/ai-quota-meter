@@ -610,7 +610,7 @@ func installCodexHook(out io.Writer) {
 		fmt.Fprintf(out, "Codex: quota hook already in %s.\n", path)
 		return
 	}
-	if err := writeSettings(path, settings); err != nil {
+	if _, err := writeSettings(path, settings); err != nil {
 		fmt.Fprintf(out, "\nCodex: %v\n", err)
 		return
 	}
@@ -640,11 +640,12 @@ func uninstallCodexHook(out io.Writer) {
 	if !removeCodexStopHook(settings) {
 		return
 	}
-	if err := writeSettings(path, settings); err != nil {
+	backup, err := writeSettings(path, settings)
+	if err != nil {
 		fmt.Fprintf(out, "\nCodex: %v\n", err)
 		return
 	}
-	fmt.Fprintf(out, "\nCodex: removed the quota hook from %s (previous copy at %s.bak)\n", path, path)
+	fmt.Fprintf(out, "\nCodex: removed the quota hook from %s%s\n", path, previousCopy(backup))
 }
 
 // checkCodexHook is the --doctor check for the hook. Whether Codex trusts it
